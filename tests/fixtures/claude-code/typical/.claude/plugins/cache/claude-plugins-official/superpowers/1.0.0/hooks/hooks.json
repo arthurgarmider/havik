@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "echo 'session started'",
+        "timeout": 5
+      }]
+    }]
+  }
+}

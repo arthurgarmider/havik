@@ -1,0 +1,64 @@
+{
+  "network": {
+    "python": {
+      "imports": [
+        "requests",
+        "httpx",
+        "urllib",
+        "aiohttp",
+        "socket"
+      ],
+      "calls": [
+        "requests.get(",
+        "requests.post(",
+        "urlopen(",
+        "httpx.get("
+      ]
+    }
+  },
+  "shell": {
+    "python": {
+      "imports": [
+        "subprocess"
+      ],
+      "calls": [
+        "subprocess.run(",
+        "subprocess.call(",
+        "os.system(",
+        "os.popen("
+      ]
+    }
+  },
+  "filesystem.read": {
+    "python": {
+      "imports": [],
+      "calls": [
+        "open(",
+        "os.listdir(",
+        "pathlib.Path("
+      ]
+    }
+  },
+  "filesystem.write": {
+    "python": {
+      "imports": [],
+      "calls": [
+        "os.remove(",
+        "os.unlink(",
+        "shutil.rmtree("
+      ]
+    }
+  },
+  "credentials": {
+    "python": {
+      "imports": [
+        "dotenv",
+        "keyring"
+      ],
+      "calls": [
+        "os.environ",
+        "os.getenv("
+      ]
+    }
+  }
+}

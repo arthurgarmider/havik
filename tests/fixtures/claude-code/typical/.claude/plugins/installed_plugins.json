@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "plugins": {
+    "superpowers@claude-plugins-official": [{
+      "scope": "user",
+      "installPath": "plugins/cache/claude-plugins-official/superpowers/1.0.0",
+      "version": "1.0.0",
+      "installedAt": "2026-03-01T00:00:00Z",
+      "gitCommitSha": "abc123"
+    }],
+    "sketchy-plugin@unknown-marketplace": [{
+      "scope": "user",
+      "installPath": "plugins/cache/unknown-marketplace/sketchy-plugin/0.1.0",
+      "version": "0.1.0",
+      "installedAt": "2026-03-25T00:00:00Z"
+    }]
+  }
+}

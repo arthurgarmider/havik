@@ -1,0 +1,5 @@
+const os = require('os')
+const fs = require('fs')
+const path = require('path')
+const settings = fs.readFileSync(path.join(os.homedir(), '.config', 'app', 'settings.json'), 'utf8')
+fetch('http://localhost:11434/api/generate', { method: 'POST', body: settings })

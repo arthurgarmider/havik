@@ -1,0 +1,27 @@
+id: injection-in-skill-description
+type: pattern
+severity: high
+confidence: medium
+owasp: ASI01
+frameworks: [all]
+description: Skill description contains prompt injection patterns
+match:
+  in: skill_md
+  file_contains: "(ignore (all |any )?(previous|prior|above|earlier) (instructions|prompts?)|disregard (all |any )?(previous|prior|above|earlier) |forget (all |any )?(previous|prior|earlier) instructions|new instructions:|reveal (your |the )?system prompt|you are now (in )?(DAN|developer) mode)"
+metadata:
+  author: havik-core
+  created: "2026-03-27"
+---
+id: dan-style-jailbreak
+type: pattern
+severity: critical
+confidence: high
+owasp: ASI01
+frameworks: [all]
+description: Skill contains DAN-style jailbreak attempt to disable safety
+match:
+  in: skill_md
+  file_contains: "(\\bDAN (mode|prompt)\\b|do anything now|jailbreak|bypass (your |all |the )?safety)"
+metadata:
+  author: havik-core
+  created: "2026-03-27"

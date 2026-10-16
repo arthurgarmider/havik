@@ -1,0 +1,25 @@
+id: remote-fetch-and-execute
+type: pattern
+severity: critical
+confidence: high
+owasp: ASI04
+frameworks: [all]
+description: Skill downloads and executes remote code
+match:
+  file_contains: "((curl|wget)\\b[^|;&\\n]*\\|\\s*(sudo\\s+)?(ba|z|da|k)?sh\\b|\\b(ba|z|da|k)?sh\\s+(-\\w+\\s+)*[\"']?\\$\\(\\s*(curl|wget)\\b|(\\b(ba|z|da|k)?sh|\\bsource|(^|[\\s;&|])\\.)\\s+<\\(\\s*(curl|wget)\\b|eval\\s*\\(?\\s*[\"'`]?\\$\\(\\s*(curl|wget)\\b)"
+metadata:
+  author: havik-core
+  created: "2026-03-27"
+---
+id: suspicious-obfuscation
+type: pattern
+severity: high
+confidence: medium
+owasp: ASI04
+frameworks: [all]
+description: Skill uses obfuscation techniques commonly seen in malware
+match:
+  file_contains: "(eval\\(atob|Buffer\\.from.{0,300}base64.{0,300}fetch|fromCharCode.{0,300}apply)"
+metadata:
+  author: havik-core
+  created: "2026-03-27"

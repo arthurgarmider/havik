@@ -1,0 +1,60 @@
+{
+  "name": "havik",
+  "version": "0.4.0",
+  "description": "What did your coding agent touch? The credential files, secrets and risky scripts Claude Code used in the last 30 days, on one screen; plus a scanner for agent skills, plugins and MCP servers",
+  "type": "module",
+  "bin": {
+    "havik": "dist/havik.js"
+  },
+  "files": [
+    "dist",
+    "rules",
+    "LICENSE",
+    "LICENSE-RULES",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build && bun test"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arthurgarmider/havik.git"
+  },
+  "homepage": "https://github.com/arthurgarmider/havik#readme",
+  "bugs": {
+    "url": "https://github.com/arthurgarmider/havik/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "ai-agents",
+    "coding-agent",
+    "agent-security",
+    "secrets",
+    "audit",
+    "mcp",
+    "security",
+    "cli"
+  ],
+  "devDependencies": {
+    "@babel/parser": "^7",
+    "@types/bun": "latest",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.0",
+    "@typesafe-ai/sdk": "0.6.0",
+    "ajv": "^8.18.0",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "js-yaml": "^4.1.1",
+    "tinyglobby": "^0.2.17",
+    "typescript": "^6.0.2"
+  }
+}

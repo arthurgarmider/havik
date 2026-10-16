@@ -1,0 +1,10 @@
+{
+  "calibratedOn": null,
+  "thresholds": {
+    "injection-overrides": null,
+    "injection-conceals": null,
+    "injection-sends-data": null,
+    "overreach": null,
+    "unneeded-evidence": null
+  }
+}

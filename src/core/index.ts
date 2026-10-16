@@ -1,0 +1,6 @@
+export { trace } from './trace'
+export type * from './types'
+export { loadRules, validateRule } from './rule-engine'
+export { detectCapabilities } from './capability-detector'
+export { calculateScore } from './scoring'
+export { findAgentInstalls } from './discovery'

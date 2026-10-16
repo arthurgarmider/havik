@@ -1,0 +1,13 @@
+id: test-capability-mismatch
+type: capability_mismatch
+severity: high
+confidence: high
+owasp: ASI02
+frameworks: [openclaw]
+description: Test rule for capability mismatch
+match:
+  capability_observed: network
+  capability_not_declared: network
+metadata:
+  author: test
+  created: "2026-03-27"

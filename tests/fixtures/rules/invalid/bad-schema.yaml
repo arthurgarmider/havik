@@ -1,0 +1,9 @@
+id: bad-rule
+type: pattern
+severity: high
+confidence: high
+owasp: ASI01
+frameworks: [openclaw]
+description: Bad rule
+match: {}
+unknown_field: this should cause rejection

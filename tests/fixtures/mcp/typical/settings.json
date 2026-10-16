@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "filesystem": { "command": "mcp-server-filesystem", "args": ["--root", "/"], "transport": "stdio" },
+    "fetch": { "command": "mcp-server-fetch", "args": [], "transport": "stdio" }
+  }
+}
