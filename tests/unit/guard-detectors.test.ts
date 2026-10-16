@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { DEFAULTS } from '../../src/core/sensitivity'
 import { accesses } from '../../src/guard/accesses'
-import { dataLeaving, mcpServerSends, secretsInResult, sensitiveAccesses, type DetectContext } from '../../src/guard/detectors'
+import { agentNoticedSecret, dataLeaving, fingerprint, mcpServerSends, secretsInPrompt, secretsInResult, sensitiveAccesses, type DetectContext } from '../../src/guard/detectors'
 import { DEFAULT_CONFIG, authorizedRoots, guardMap } from '../../src/guard/policy'
 import type { Armed } from '../../src/guard/types'
 
@@ -153,5 +153,70 @@ describe('sensitiveAccesses: keys used by ssh', () => {
     const found = sensitiveAccesses(list, ctx())
     expect(found.map(f => `${f.severity} ${f.message}`)).toEqual(['medium ssh ~/.ssh/id_rsa: SSH private keys, used as a key'])
     expect(dataLeaving(list, found, ctx())).toEqual([])
+  })
+})
+
+describe('secretsInPrompt', () => {
+  const TOKEN = 'ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL'
+  it('reports a secret you typed or pasted, by kind, with a fingerprint and never the value', () => {
+    const [f] = secretsInPrompt(`deploy with ${TOKEN} please`, 'salt')
+    expect(f).toMatchObject({ detector: 'secret-in-prompt', severity: 'high', label: 'GitHub token you pasted' })
+    expect(f.message).toContain('GitHub token in your message')
+    expect(f.fingerprints).toEqual([fingerprint(TOKEN, 'salt')])
+    expect(JSON.stringify(f)).not.toContain(TOKEN)
+  })
+
+  it('warns for any pasted secret, weak shapes included; a placeholder is medium and ordinary text is silent', () => {
+    expect(secretsInPrompt('connect to postgres://app:hunter2hunter2@db.internal/app', 's').map((f) => f.severity)).toEqual(['high'])
+    expect(secretsInPrompt('the docs use AKIAIOSFODNN7EXAMPLE as the key', 's').map((f) => f.severity)).toEqual(['medium'])
+    expect(secretsInPrompt('please fix the login page', 's')).toEqual([])
+  })
+})
+
+describe('secretsInResult after a paste', () => {
+  it('does not blame the tool for a secret you already pasted into the conversation', () => {
+    const TOKEN = 'ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL'
+    const pasted = new Set([fingerprint(TOKEN, 's')])
+    const known = (v: string) => pasted.has(fingerprint(v, 's'))
+    expect(secretsInResult('Bash env', `GITHUB_TOKEN=${TOKEN}`, false, false, known)).toEqual([])
+    expect(secretsInResult('Bash env', `GITHUB_TOKEN=${TOKEN} OTHER=ghp_Zz9fKq2LmNpR7sTvWx1yZaBc4dEfGh5Jk`, false, false, known).length).toBe(1)
+  })
+})
+
+describe('agentNoticedSecret', () => {
+  const noticed = (text: string) => agentNoticedSecret(text).length > 0
+  it('flags a reply that says you shared a secret, phrased the ways seen in real sessions', () => {
+    for (const t of [
+      '## Rotate that key',
+      'Still needed from you: rotate the exposed webhook key, then populate the two secrets yourself.',
+      'put-secret-value for the webhook key (yours to run, and rotate the pasted one first)',
+      "You've pasted a live Stripe key into the chat.",
+      'You just shared your GitHub token here.',
+      'That token is now exposed in this conversation.',
+    ]) expect([t, noticed(t)]).toEqual([t, true])
+  })
+
+  it('stays quiet on general advice and on talk about keys that were not shared', () => {
+    for (const t of [
+      'Rotate keys every 90 days as a policy.',
+      'You can paste your API key into .env and restart.',
+      'Please have them rotate it.',
+      'Revoke access in the GitHub settings page.',
+      '| PAT | OAuth | choose scopes, revoke from settings |',
+      'The new account-scoped payment key is visible and working.',
+    ]) expect([t, noticed(t)]).toEqual([t, false])
+  })
+
+  it('reports once per session, high, quoting the sentence without any value in it', () => {
+    const [f] = agentNoticedSecret('Rotate that key: ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL is in the chat.')
+    expect(f).toMatchObject({ detector: 'secret-in-prompt', severity: 'high', key: 'secret-in-prompt:agent-noticed', kind: 'noticed by the agent' })
+    expect(f.message).toContain('the agent says you shared a secret')
+    expect(JSON.stringify(f)).not.toContain('ghp_9fKq2')
+  })
+
+  it('masks a value in a format havik does not know when the reply quotes it', () => {
+    const [f] = agentNoticedSecret('## Rotate that key `Q7wErT9yUi0pAs1dF2gH3jK4lZ5xC6vB` is now in this chat transcript.')
+    expect(JSON.stringify(f)).not.toContain('Q7wErT9y')
+    expect(f.message).toContain('Rotate that key')
   })
 })

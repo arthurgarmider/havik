@@ -1,4 +1,5 @@
-import { appendFile, mkdir, readdir, stat, unlink } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { appendFile, mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { readTextOrNull } from '../core/fs'
 import { havikHome } from './policy'
@@ -8,6 +9,18 @@ const MAX_LINE = 4000
 const DAY_MS = 86_400_000
 
 export const auditDir = (): string => join(havikHome(), 'audit')
+
+// A random salt per install for the fingerprints of pasted secrets: created once, readable only by the user.
+// When it cannot be written, the run uses a fresh one and a later paste is simply not recognised.
+export const loadSalt = async (): Promise<string> => {
+  const file = join(havikHome(), 'salt')
+  const existing = (await readTextOrNull(file))?.trim()
+  if (existing) return existing
+  const salt = randomBytes(16).toString('hex')
+  await mkdir(havikHome(), { recursive: true, mode: 0o700 }).catch(() => undefined)
+  await writeFile(file, salt, { mode: 0o600, flag: 'wx' }).catch(() => undefined)
+  return (await readTextOrNull(file))?.trim() || salt
+}
 export const sessionFile = (sessionId: string): string =>
   join(auditDir(), `${sessionId.replace(/[^\w.-]/g, '_').slice(0, 100) || 'unknown'}.jsonl`)
 
@@ -29,7 +42,7 @@ export const appendLine = async (line: AuditLine): Promise<void> => {
 const ARMS = (line: AuditLine): boolean =>
   (line.detector === 'secret-in-result' || (line.detector === 'sensitive-access' && line.kind === 'read')) && (line.severity === 'critical' || line.severity === 'high')
 
-export const emptyMemory = (): Memory => ({ started: false, roots: [], remoteMcp: {}, armed: [], alerted: new Set() })
+export const emptyMemory = (): Memory => ({ started: false, roots: [], remoteMcp: {}, armed: [], alerted: new Set(), pasted: new Set() })
 
 // What one audit line adds to the session memory. Access lines add nothing.
 export const applyLine = (memory: Memory, line: AuditLine): Memory => {
@@ -41,7 +54,8 @@ export const applyLine = (memory: Memory, line: AuditLine): Memory => {
   const armed = ARMS(line)
     ? [...memory.armed, { ts: line.ts, label: line.label ?? line.path ?? 'a sensitive read', severity: line.severity ?? 'high', tool_use_id: line.tool_use_id }]
     : memory.armed
-  return { ...memory, alerted, armed }
+  const pasted = line.detector === 'secret-in-prompt' && line.fingerprints ? new Set([...memory.pasted, ...line.fingerprints]) : memory.pasted
+  return { ...memory, alerted, armed, pasted }
 }
 
 export const readMemory = async (sessionId: string): Promise<Memory> => {

@@ -42,7 +42,7 @@ describe('README honesty', () => {
     const types = readFileSync(join(ROOT, 'src/guard/types.ts'), 'utf8')
     const union = types.match(/export type Detector = ([^\n]+)/)?.[1] ?? ''
     const detectors = [...union.matchAll(/'([a-z-]+)'/g)].map((m) => m[1])
-    expect(detectors.length).toBe(4)
+    expect(detectors.length).toBe(5)
     expect(detectors.filter((d) => !readme.includes(`\`${d}\``))).toEqual([])
     expect(readme).toMatch(/^## Runtime guard/m)
     expect(readme).toContain('never blocks')

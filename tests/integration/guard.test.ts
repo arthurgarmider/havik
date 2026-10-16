@@ -153,3 +153,32 @@ describe('guard: never fails a session', () => {
     })
   })
 })
+
+describe('guard: secrets you paste', () => {
+  const TOKEN = 'ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL'
+  it('warns about a token in your message, and does not blame the tool that later prints it', async () => {
+    await withSandbox(async (s) => {
+      const paste = await runHook(hookEvent(s, { hook_event_name: 'UserPromptSubmit', prompt: `use ${TOKEN} for the release`, tool_name: undefined, tool_input: undefined }), s.env)
+      expect([paste.code, paste.stderr]).toEqual([0, ''])
+      expect(paste.message).toContain('GitHub token in your message')
+      expect(paste.stdout).not.toMatch(/"decision"|additionalContext|"continue"/)
+      const later = await runHook(hookEvent(s, { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'printenv GITHUB_TOKEN' }, tool_response: { stdout: TOKEN, stderr: '' } }), s.env)
+      expect([later.code, later.message]).toEqual([0, undefined])
+      expect(JSON.stringify(await auditOf(s))).not.toContain(TOKEN)
+    })
+  })
+})
+
+describe('guard: what the agent says', () => {
+  it('warns once when the reply says you shared a secret, and never blocks the stop', async () => {
+    await withSandbox(async (s) => {
+      const reply = (text: string) => runHook(hookEvent(s, { hook_event_name: 'Stop', last_assistant_message: text }), s.env)
+      const first = await reply('Done. Rotate that key: it was pasted in plain text.')
+      expect([first.code, first.stderr]).toEqual([0, ''])
+      expect(first.message).toContain('the agent says you shared a secret')
+      expect(first.stdout).not.toMatch(/"decision"|"continue"|additionalContext/)
+      expect((await reply('Rotate that key, as I said.')).message).toBeUndefined()
+      expect((await reply('All tests pass.')).message).toBeUndefined()
+    })
+  })
+})

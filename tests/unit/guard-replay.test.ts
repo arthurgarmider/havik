@@ -36,8 +36,11 @@ const benign = (session: string, cwd: string): string => [
 ].map((l) => JSON.stringify(l)).join('\n')
 
 describe('eventsOf', () => {
-  it('turns tool calls and results into PreToolUse and PostToolUse events, in order, and skips everything else', () => {
-    const events = eventsOf(transcript('s1', '/home/u/proj', '/home/u'))
+  it('turns typed messages, replies, tool calls and results into hook events, in order, and skips everything else', () => {
+    const all = eventsOf(transcript('s1', '/home/u/proj', '/home/u'))
+    expect(all[0].event).toMatchObject({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' })
+    expect(all.filter((e) => e.event.hook_event_name === 'Stop').map((e) => e.event.last_assistant_message)).toEqual(['reading'])
+    const events = all.slice(1).filter((e) => e.event.hook_event_name !== 'Stop')
     expect(events.map((e) => `${e.event.hook_event_name}:${e.event.tool_name}:${e.event.tool_use_id}`)).toEqual(['PreToolUse:Read:tu1', 'PostToolUse:Read:tu1', 'PreToolUse:WebFetch:tu2'])
     expect(events[1].event.tool_response).toEqual({ type: 'text', file: { content: `password = ${CANARY}` } })
     expect(events[0].event.permission_mode).toBe('default')
@@ -83,5 +86,40 @@ describe('replaySessions', () => {
       const r = await replaySessions({ projectsDir: join(dir, 'none'), home: dir, config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG) })
       expect([r.sessions, r.toolCalls, r.summaries]).toEqual([0, 0, []])
     })
+  })
+})
+
+describe('replay: what you typed', () => {
+  const TOKEN = 'ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL'
+  const pasting = (session: string, cwd: string): string => [
+    { type: 'user', sessionId: session, cwd, timestamp: T(0), message: { role: 'user', content: `use ${TOKEN} for the API` } },
+    { type: 'user', sessionId: session, cwd, timestamp: T(0), isMeta: true, message: { role: 'user', content: `meta ${TOKEN}` } },
+    { type: 'assistant', sessionId: session, cwd, timestamp: T(1), message: { content: [{ type: 'tool_use', id: 'e1', name: 'Bash', input: { command: 'printenv GITHUB_TOKEN' } }] } },
+    { type: 'user', sessionId: session, cwd, timestamp: T(1), message: { content: [{ type: 'tool_result', tool_use_id: 'e1', content: TOKEN }] }, toolUseResult: { stdout: TOKEN, stderr: '' } },
+  ].map((l) => JSON.stringify(l)).join('\n')
+
+  it('turns a typed message into a UserPromptSubmit event, and skips meta lines and tool results', () => {
+    const prompts = eventsOf(pasting('p1', '/home/u/proj')).filter((e) => e.event.hook_event_name === 'UserPromptSubmit')
+    expect(prompts.map((e) => e.event.prompt)).toEqual([`use ${TOKEN} for the API`])
+  })
+
+  it('reports the paste once, and does not blame the later tool output that shows the same token', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const projects = join(home, '.claude/projects/p')
+      await mkdir(projects, { recursive: true })
+      await writeFile(join(projects, 'p1.jsonl'), pasting('p1', join(home, 'proj')))
+      const r = await ownTmp(dir, () => replaySessions({ projectsDir: join(home, '.claude/projects'), home, config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG), now: Date.parse(T(30)) }))
+      expect(r.findings.map((f) => f.detector)).toEqual(['secret-in-prompt'])
+      expect(JSON.stringify(r)).not.toContain(TOKEN)
+    })
+  })
+})
+
+describe('replay: what the agent said', () => {
+  it('turns assistant text into a Stop event carrying the reply', () => {
+    const line = { type: 'assistant', sessionId: 'a1', cwd: '/home/u/proj', timestamp: T(2), message: { content: [{ type: 'text', text: 'Rotate that key.' }, { type: 'tool_use', id: 'x', name: 'Bash', input: { command: 'ls' } }] } }
+    const stops = eventsOf(JSON.stringify(line)).filter((e) => e.event.hook_event_name === 'Stop')
+    expect(stops.map((e) => e.event.last_assistant_message)).toEqual(['Rotate that key.'])
   })
 })

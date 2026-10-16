@@ -16,6 +16,7 @@ const FINDINGS = [
   line({ detector: 'secret-in-result', kind: 'Google API key, GitHub token' }),
   line({ detector: 'secret-in-result', kind: 'GitHub token' }),
   line({ detector: 'data-leaving', label: 'curl to api.example.com', host: 'api.example.com' }),
+  line({ detector: 'secret-in-prompt', kind: 'password in a URL' }),
   line({ detector: 'script-about-to-run', reason: 'setup.sh downloads code and runs it (line 71)', alerted: false }),
 ]
 
@@ -29,7 +30,8 @@ describe('formatTouched', () => {
 
   it('counts distinct things per row and names at most three', () => {
     expect(out).toMatch(/sensitive files touched\s+4\s+~\/\.aws\/credentials, ~\/other\/\.env, ~\/\.zshrc \(\+1\)/)
-    expect(out).toMatch(/secrets entered the context\s+2\s+Google API key, GitHub token/)
+    expect(out).toMatch(/secrets tools pulled in\s+2\s+Google API key, GitHub token/)
+    expect(out).toMatch(/secrets you pasted\s+1\s+password in a URL/)
     expect(out).toMatch(/sent out right after\s+1\s+curl to api\.example\.com/)
     expect(out).toMatch(/risky scripts\s+1\s+setup\.sh downloads code and runs it/)
   })
@@ -39,7 +41,7 @@ describe('formatTouched', () => {
   })
 
   it('ends with the warning rate and the two next commands, on one screen', () => {
-    expect(out).toContain('8 warnings in 19 days (0.4 a day) would have reached the session.')
+    expect(out).toContain('9 warnings in 19 days (0.5 a day) would have reached the session.')
     expect(out).toContain('npx agent-havik guard install')
     expect(out).toContain('npx agent-havik guard replay')
     expect(out.split('\n').length).toBeLessThanOrEqual(24)

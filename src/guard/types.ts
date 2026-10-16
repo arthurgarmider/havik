@@ -6,7 +6,7 @@ export type AccessKind = 'read' | 'use' | 'write' | 'send' | 'fetch' | 'script' 
 // What one tool call touches. `via` names the tool, and for Bash the program, so messages can say how.
 export interface Access { readonly kind: AccessKind; readonly path?: string; readonly host?: string; readonly via: string }
 
-export type Detector = 'sensitive-access' | 'secret-in-result' | 'data-leaving' | 'script-about-to-run'
+export type Detector = 'sensitive-access' | 'secret-in-result' | 'secret-in-prompt' | 'data-leaving' | 'script-about-to-run'
 export interface GuardFinding {
   readonly detector: Detector
   readonly severity: Severity
@@ -22,6 +22,7 @@ export interface GuardFinding {
   readonly evidence: 'observed' | 'static'
   readonly proof?: string
   readonly chain?: readonly string[]
+  readonly fingerprints?: readonly string[]
 }
 
 // The stdin of a Claude Code hook; only the fields havik reads.
@@ -34,6 +35,8 @@ export interface HookEvent {
   readonly tool_input?: unknown
   readonly tool_response?: unknown
   readonly tool_use_id?: string
+  readonly prompt?: string
+  readonly last_assistant_message?: string
   readonly agent_id?: string
   readonly agent_type?: string
   readonly source?: string
@@ -64,6 +67,7 @@ export interface AuditLine {
   readonly evidence?: 'observed' | 'static'
   readonly proof?: string
   readonly chain?: readonly string[]
+  readonly fingerprints?: readonly string[]
   readonly roots?: readonly string[]
   readonly remote_mcp?: Readonly<Record<string, string>>
   readonly source?: string
@@ -80,4 +84,6 @@ export interface Memory {
   readonly remoteMcp: Readonly<Record<string, string>>
   readonly armed: readonly Armed[]
   readonly alerted: ReadonlySet<string>
+  // Salted fingerprints of the secrets the user pasted in this session.
+  readonly pasted: ReadonlySet<string>
 }

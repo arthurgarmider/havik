@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtemp, readFile, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appendLine, auditDir, pruneAudit, readMemory, sessionFile } from '../../src/guard/session'
+import { appendLine, applyLine, auditDir, emptyMemory, pruneAudit, readMemory, sessionFile } from '../../src/guard/session'
 import type { AuditLine } from '../../src/guard/types'
 
 let home: string
@@ -115,5 +115,13 @@ describe('what arms data-leaving', () => {
     expect((await readMemory('s1')).armed).toEqual([])
     await appendLine(line({ event: 'finding', detector: 'secret-in-result', severity: 'high', key: 'h', alerted: true, label: 'GitHub token from Bash cat x' }))
     expect((await readMemory('s1')).armed.map((a) => a.label)).toEqual(['GitHub token from Bash cat x'])
+  })
+})
+
+describe('applyLine: pasted secrets', () => {
+  it('remembers the fingerprints of secrets pasted in this session', () => {
+    const line: AuditLine = { ts: '2026-10-16T10:00:00.000Z', session_id: 's', event: 'finding', detector: 'secret-in-prompt', severity: 'high', fingerprints: ['ab12', 'cd34'], ms: 0 }
+    expect([...applyLine(emptyMemory(), line).pasted].sort()).toEqual(['ab12', 'cd34'])
+    expect(emptyMemory().pasted.size).toBe(0)
   })
 })

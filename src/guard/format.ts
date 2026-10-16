@@ -35,6 +35,7 @@ export const findingLine = (event: HookEvent, f: GuardFinding, alerted: boolean,
   evidence: f.evidence,
   proof: f.proof,
   chain: f.chain,
+  fingerprints: f.fingerprints,
   alerted,
 })
 

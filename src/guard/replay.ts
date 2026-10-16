@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import { findFiles, readTextOrNull } from '../core/fs'
@@ -33,8 +34,18 @@ export const eventsOf = (text: string): Replayed[] => {
     if (!session_id || !cwd) continue
     const at = Date.parse(str(line['timestamp']) ?? '') || 0
     const base = { session_id, cwd, permission_mode: mode }
+    // What the user typed or pasted; meta lines and compaction summaries are written by Claude Code, not the user.
+    const content = asRecord(line['message'])['content']
+    if (line['type'] === 'user' && !line['isMeta'] && !line['isCompactSummary'] && line['toolUseResult'] === undefined) {
+      const prompt = typeof content === 'string' ? content : asArray(content).flatMap(b => (asRecord(b)['type'] === 'text' ? [String(asRecord(b)['text'] ?? '')] : [])).join('\n')
+      if (prompt) out.push({ at, event: { ...base, hook_event_name: 'UserPromptSubmit', prompt } })
+    }
     for (const block of asArray(asRecord(line['message'])['content'])) {
       const b = asRecord(block)
+      // What the agent said; the live guard reads the same text from the Stop hook.
+      if (line['type'] === 'assistant' && b['type'] === 'text' && typeof b['text'] === 'string' && b['text']) {
+        out.push({ at, event: { ...base, hook_event_name: 'Stop', last_assistant_message: b['text'] } })
+      }
       if (line['type'] === 'assistant' && b['type'] === 'tool_use' && typeof b['id'] === 'string' && typeof b['name'] === 'string') {
         calls.set(b['id'], { name: b['name'], input: b['input'] })
         out.push({ at, event: { ...base, hook_event_name: 'PreToolUse', tool_name: b['name'], tool_input: b['input'], tool_use_id: b['id'] } })
@@ -60,7 +71,7 @@ export interface ReplayOptions {
   readonly scanScripts?: boolean
 }
 
-// `findings` keeps the high and critical findings, for the one-screen summary.
+// `findings` keeps the high and critical findings and every pasted secret, for the one-screen summary.
 export interface ReplayResult { readonly sessions: number; readonly toolCalls: number; readonly days: number; readonly summaries: SessionSummary[]; readonly findings: AuditLine[] }
 
 // A subagent's transcript lives under <session>/subagents/, and belongs to that session.
@@ -76,6 +87,7 @@ export const replaySessions = async (o: ReplayOptions): Promise<ReplayResult> =>
     groups.set(sessionOf(file), [...(groups.get(sessionOf(file)) ?? []), file])
   }
   const store = memoryStore()
+  const salt = randomBytes(16).toString('hex')
   const days = new Set<string>()
   let toolCalls = 0
   // One session at a time, so memory holds a single session's events.
@@ -91,14 +103,15 @@ export const replaySessions = async (o: ReplayOptions): Promise<ReplayResult> =>
       }
       await handleEvent(event, {
         home: o.home, config: o.config, map: o.map, store,
-        now: () => at, ms: () => 0, spent: () => 0, scanScripts: o.scanScripts ?? true, prune: false,
+        now: () => at, ms: () => 0, spent: () => 0, scanScripts: o.scanScripts ?? true, prune: false, salt,
       })
     }
   }
   const bySession = new Map<string, AuditLine[]>()
   for (const line of store.lines) bySession.set(line.session_id, [...(bySession.get(line.session_id) ?? []), line])
   const summaries = [...bySession].map(([session, lines]) => summarise(session, lines)).sort((a, b) => a.first.localeCompare(b.first))
-  const findings = store.lines.filter(l => l.event === 'finding' && (l.severity === 'critical' || l.severity === 'high'))
+  // Every secret the user pasted is listed, whatever its severity; for the rest, high and critical.
+  const findings = store.lines.filter(l => l.event === 'finding' && (l.detector === 'secret-in-prompt' || l.severity === 'critical' || l.severity === 'high'))
   return { sessions: bySession.size, toolCalls, days: days.size, summaries, findings }
 }
 

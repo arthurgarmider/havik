@@ -8,13 +8,14 @@ const CMD = hookCommand('/usr/local/bin/node', '/opt/havik/dist/guard.js')
 const FOREIGN = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }] }
 
 describe('withGuard / withoutGuard', () => {
-  it('adds PreToolUse, PostToolUse and SessionStart entries and keeps every other hook', () => {
+  it('adds PreToolUse, PostToolUse, SessionStart, UserPromptSubmit and Stop entries and keeps every other hook', () => {
     const next = withGuard({ model: 'x', hooks: { PreToolUse: [FOREIGN], Stop: [FOREIGN] } }, CMD)
     expect(next.model).toBe('x')
-    expect(next.hooks.Stop).toEqual([FOREIGN])
     expect(next.hooks.PreToolUse).toEqual([FOREIGN, { matcher: TOOL_MATCHER, hooks: [{ type: 'command', command: CMD, timeout: 5 }] }])
     expect(next.hooks.PostToolUse[0].matcher).toBe(TOOL_MATCHER)
     expect(next.hooks.SessionStart).toEqual([{ hooks: [{ type: 'command', command: CMD, timeout: 5 }] }])
+    expect(next.hooks.UserPromptSubmit).toEqual([{ hooks: [{ type: 'command', command: CMD, timeout: 5 }] }])
+    expect(next.hooks.Stop).toEqual([FOREIGN, { hooks: [{ type: 'command', command: CMD, timeout: 5 }] }])
   })
 
   it('is idempotent: installing twice leaves one set of havik entries', () => {

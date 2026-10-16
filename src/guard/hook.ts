@@ -3,7 +3,7 @@ import { asRecord } from '../core/json'
 import { loadSensitivityMap } from '../core/sensitivity'
 import { handleEvent } from './engine'
 import { guardMap, loadGuardConfig } from './policy'
-import { diskStore } from './session'
+import { diskStore, loadSalt } from './session'
 import type { HookEvent } from './types'
 
 const MAX_STDIN = 8_000_000
@@ -42,7 +42,7 @@ const parseEvent = (raw: string): HookEvent | undefined => {
   return {
     session_id, cwd, hook_event_name,
     permission_mode: str(e['permission_mode']), tool_name: str(e['tool_name']), tool_input: e['tool_input'], tool_response: e['tool_response'],
-    tool_use_id: str(e['tool_use_id']), agent_id: str(e['agent_id']), agent_type: str(e['agent_type']), source: str(e['source']), model: str(e['model']),
+    tool_use_id: str(e['tool_use_id']), prompt: str(e['prompt']), last_assistant_message: str(e['last_assistant_message']), agent_id: str(e['agent_id']), agent_type: str(e['agent_type']), source: str(e['source']), model: str(e['model']),
   }
 }
 
@@ -54,7 +54,7 @@ const run = async (): Promise<string> => {
     home: homedir(), config, map: guardMap(await loadSensitivityMap(), config), store: diskStore,
     // `ms` is the cost a user pays per tool call, Node start-up included.
     now: () => Date.now(), ms: () => Math.round(process.uptime() * 1000), spent: () => performance.now() - started,
-    scanScripts: true, prune: true,
+    scanScripts: true, prune: true, salt: await loadSalt(),
   })
 }
 

@@ -10,7 +10,7 @@ type Settings = Record<string, any>
 
 export const TOOL_MATCHER = 'Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep|Bash|WebFetch|mcp__.*'
 export const MIN_CLAUDE_VERSION = '2.1.251'
-const EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart'] as const
+const EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 // havik/guard.js is what 0.4.0 installed; it must still be recognised so a re-install replaces it.
 const GUARD_COMMAND = /dist\/guard\.js|havik\/guard\.m?js|src\/guard\/hook\.ts/
 
@@ -52,6 +52,8 @@ export const withGuard = (settings: Settings, command: string): Settings => {
   hooks['PreToolUse'] = [...asArray(hooks['PreToolUse']), entry(TOOL_MATCHER)]
   hooks['PostToolUse'] = [...asArray(hooks['PostToolUse']), entry(TOOL_MATCHER)]
   hooks['SessionStart'] = [...asArray(hooks['SessionStart']), entry()]
+  hooks['UserPromptSubmit'] = [...asArray(hooks['UserPromptSubmit']), entry()]
+  hooks['Stop'] = [...asArray(hooks['Stop']), entry()]
   return { ...base, hooks }
 }
 

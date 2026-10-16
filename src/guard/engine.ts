@@ -5,7 +5,7 @@ import { readTextHead } from '../core/fs'
 import { asRecord } from '../core/json'
 import type { SensitivityMap } from '../core/sensitivity'
 import { accesses, tildify } from './accesses'
-import { atLeast, dataLeaving, isTestRun, mcpServerSends, secretsInResult, sensitiveAccesses, type DetectContext } from './detectors'
+import { agentNoticedSecret, atLeast, dataLeaving, fingerprint, isTestRun, mcpServerSends, secretsInPrompt, secretsInResult, sensitiveAccesses, type DetectContext } from './detectors'
 import { accessLine, baseLine, clean, findingLine, systemMessage } from './format'
 import { scanScript } from './jit'
 import { authorizedRoots, judgePath, type GuardConfig } from './policy'
@@ -29,6 +29,8 @@ export interface EngineOptions {
   readonly spent: () => number
   readonly scanScripts: boolean
   readonly prune: boolean
+  // Keys the fingerprints of pasted secrets; per install for the hook, per run for a replay.
+  readonly salt: string
 }
 
 // MCP servers reached over the network, from the project's .mcp.json and ~/.claude.json; learned once per session.
@@ -126,10 +128,14 @@ const post = async (event: HookEvent, o: EngineOptions): Promise<string> => {
   const list = accesses(tool, event.tool_input, event.cwd, o.home)
   const critical = list.some(a => a.kind === 'read' && a.path && judgePath(a.path, ctx).level === 'critical')
   const command = tool === 'Bash' ? String(asRecord(event.tool_input)['command'] ?? '') : ''
-  const findings = secretsInResult(sourceOf(tool, event.tool_input, list, o.home), event.tool_response, critical, isTestRun(command))
+  const pastedEarlier = (value: string) => memory.pasted.has(fingerprint(value, o.salt))
+  const findings = secretsInResult(sourceOf(tool, event.tool_input, list, o.home), event.tool_response, critical, isTestRun(command), pastedEarlier)
   if (o.spent() > POST_BUDGET_MS) await write(o, { ...baseLine(event, o.ms(), o.now()), event: 'budget-exceeded', reason: 'result check was slow' })
   return record(event, findings, [], memory, o)
 }
+
+const prompted = async (event: HookEvent, o: EngineOptions): Promise<string> =>
+  record(event, secretsInPrompt(event.prompt ?? '', o.salt), [], await o.store.readMemory(event.session_id), o)
 
 // One hook event in, at most one warning out. Unknown events are ignored.
 export const handleEvent = async (event: HookEvent, o: EngineOptions): Promise<string> => {
@@ -140,6 +146,8 @@ export const handleEvent = async (event: HookEvent, o: EngineOptions): Promise<s
     }
     if (event.hook_event_name === 'PreToolUse') return await pre(event, o)
     if (event.hook_event_name === 'PostToolUse') return await post(event, o)
+    if (event.hook_event_name === 'UserPromptSubmit') return await prompted(event, o)
+    if (event.hook_event_name === 'Stop') return await record(event, agentNoticedSecret(event.last_assistant_message ?? ''), [], await o.store.readMemory(event.session_id), o)
     return ''
   } catch (error) {
     await write(o, { ...baseLine(event, o.ms(), o.now()), event: 'guard-error', reason: clean(String(error), 300) })

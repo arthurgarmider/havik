@@ -31,7 +31,8 @@ export const formatTouched = (r: ReplayResult, span: string, home: string, dir =
   const f = r.findings
   const rows = [
     ...row('sensitive files touched', distinct(of(f, 'sensitive-access').map(x => x.path && tildify(x.path, home)))),
-    ...row('secrets entered the context', distinct(of(f, 'secret-in-result').flatMap(x => (x.kind ?? '').split(', ')))),
+    ...row('secrets you pasted', distinct(of(f, 'secret-in-prompt').flatMap(x => (x.kind ?? '').split(', ')))),
+    ...row('secrets tools pulled in', distinct(of(f, 'secret-in-result').flatMap(x => (x.kind ?? '').split(', ')))),
     ...row('sent out right after', distinct(of(f, 'data-leaving').map(x => x.label))),
     ...row('risky scripts', distinct(of(f, 'script-about-to-run').map(x => x.reason?.replace(/ \(line \d+\)$/, '')))),
   ]
