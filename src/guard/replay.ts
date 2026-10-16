@@ -1,110 +1,68 @@
 import { randomBytes } from 'node:crypto'
-import { stat } from 'node:fs/promises'
-import { basename, dirname } from 'node:path'
-import { findFiles, readTextOrNull } from '../core/fs'
-import { asArray, asRecord } from '../core/json'
+import { claudeCode, eventsOf } from '../agents/claude-code'
+import type { AgentDef } from '../agents/types'
 import type { SensitivityMap } from '../core/sensitivity'
 import { formatSession, summarise, type SessionSummary } from './audit'
 import { tildify } from './accesses'
 import { handleEvent } from './engine'
 import type { GuardConfig } from './policy'
 import { memoryStore } from './session'
-import type { AuditLine, HookEvent } from './types'
+import type { AuditLine } from './types'
 
-// What the guard would have said about past sessions, from the transcripts Claude Code keeps in
-// ~/.claude/projects. Best-effort: the transcript format is internal to Claude Code and can change.
-export interface Replayed { readonly event: HookEvent; readonly at: number }
-
-const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
-
-export const eventsOf = (text: string): Replayed[] => {
-  const out: Replayed[] = []
-  const calls = new Map<string, { name: string; input: unknown }>()
-  let mode: string | undefined
-  for (const raw of text.split('\n')) {
-    let line: Record<string, any>
-    try {
-      line = asRecord(JSON.parse(raw))
-    } catch {
-      continue
-    }
-    const session_id = str(line['sessionId'])
-    const cwd = str(line['cwd'])
-    mode = str(line['permissionMode']) ?? mode
-    if (!session_id || !cwd) continue
-    const at = Date.parse(str(line['timestamp']) ?? '') || 0
-    const base = { session_id, cwd, permission_mode: mode }
-    // What the user typed or pasted; meta lines and compaction summaries are written by Claude Code, not the user.
-    const content = asRecord(line['message'])['content']
-    if (line['type'] === 'user' && !line['isMeta'] && !line['isCompactSummary'] && line['toolUseResult'] === undefined) {
-      const prompt = typeof content === 'string' ? content : asArray(content).flatMap(b => (asRecord(b)['type'] === 'text' ? [String(asRecord(b)['text'] ?? '')] : [])).join('\n')
-      if (prompt) out.push({ at, event: { ...base, hook_event_name: 'UserPromptSubmit', prompt } })
-    }
-    for (const block of asArray(asRecord(line['message'])['content'])) {
-      const b = asRecord(block)
-      // What the agent said; the live guard reads the same text from the Stop hook.
-      if (line['type'] === 'assistant' && b['type'] === 'text' && typeof b['text'] === 'string' && b['text']) {
-        out.push({ at, event: { ...base, hook_event_name: 'Stop', last_assistant_message: b['text'] } })
-      }
-      if (line['type'] === 'assistant' && b['type'] === 'tool_use' && typeof b['id'] === 'string' && typeof b['name'] === 'string') {
-        calls.set(b['id'], { name: b['name'], input: b['input'] })
-        out.push({ at, event: { ...base, hook_event_name: 'PreToolUse', tool_name: b['name'], tool_input: b['input'], tool_use_id: b['id'] } })
-      }
-      if (line['type'] === 'user' && b['type'] === 'tool_result' && typeof b['tool_use_id'] === 'string') {
-        const call = calls.get(b['tool_use_id'])
-        if (!call || b['is_error'] === true) continue
-        const response = line['toolUseResult'] ?? b['content']
-        out.push({ at, event: { ...base, hook_event_name: 'PostToolUse', tool_name: call.name, tool_input: call.input, tool_use_id: b['tool_use_id'], tool_response: response } })
-      }
-    }
-  }
-  return out
-}
+export { eventsOf }
 
 export interface ReplayOptions {
-  readonly projectsDir: string
+  readonly projectsDir?: string   // Claude Code's transcripts, when not in ~/.claude/projects
   readonly home: string
   readonly config: GuardConfig
   readonly map: SensitivityMap
   readonly since?: number
   readonly now?: number
   readonly scanScripts?: boolean
+  readonly agents?: readonly AgentDef[]
 }
 
 // `findings` keeps the high and critical findings and every pasted secret, for the one-screen summary.
-export interface ReplayResult { readonly sessions: number; readonly toolCalls: number; readonly days: number; readonly summaries: SessionSummary[]; readonly findings: AuditLine[] }
+export interface ReplayResult {
+  readonly sessions: number; readonly toolCalls: number; readonly days: number
+  readonly summaries: SessionSummary[]; readonly findings: AuditLine[]
+  readonly agents: Readonly<Record<string, { readonly sessions: number; readonly toolCalls: number; readonly unknownActions: number }>>
+  readonly warnings: readonly string[]
+}
 
-// A subagent's transcript lives under <session>/subagents/, and belongs to that session.
-const sessionOf = (file: string): string =>
-  basename(dirname(file)) === 'subagents' ? basename(dirname(dirname(file))) : basename(file, '.jsonl')
-
-export const replaySessions = async (o: ReplayOptions): Promise<ReplayResult> => {
+// What the guard would have said about past conversations, from each agent's own records, through the same detectors.
+export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
   const now = o.now ?? Date.now()
-  const groups = new Map<string, string[]>()
-  for (const file of await findFiles('**/*.jsonl', o.projectsDir, { absolute: true, dot: true, deep: 5 })) {
-    const info = await stat(file).catch(() => null)
-    if (!info || (o.since !== undefined && now - info.mtimeMs > o.since)) continue
-    groups.set(sessionOf(file), [...(groups.get(sessionOf(file)) ?? []), file])
-  }
   const store = memoryStore()
   const salt = randomBytes(16).toString('hex')
   const days = new Set<string>()
+  const perAgent: Record<string, { sessions: number; toolCalls: number; unknownActions: number }> = {}
+  const warnings: string[] = []
   let toolCalls = 0
-  // One session at a time, so memory holds a single session's events.
-  for (const files of groups.values()) {
-    const events: Replayed[] = []
-    for (const file of files) events.push(...eventsOf((await readTextOrNull(file)) ?? ''))
-    events.sort((a, b) => a.at - b.at)
-    for (const { event, at } of events) {
-      if (o.since !== undefined && now - at > o.since) continue
-      if (event.hook_event_name === 'PreToolUse') {
-        toolCalls++
-        days.add(new Date(at).toISOString().slice(0, 10))
+  for (const def of o.agents ?? [claudeCode]) {
+    if (!def.history) continue
+    for await (const item of def.history({ home: o.home, since: o.since, now, dir: def.id === claudeCode.id ? o.projectsDir : undefined })) {
+      if ('warning' in item) {
+        warnings.push(`${def.name}: ${item.warning}`)
+        continue
       }
-      await handleEvent(event, {
-        home: o.home, config: o.config, map: o.map, store,
-        now: () => at, ms: () => 0, spent: () => 0, scanScripts: o.scanScripts ?? true, prune: false, salt,
-      })
+      const counts = (perAgent[def.id] ??= { sessions: 0, toolCalls: 0, unknownActions: 0 })
+      counts.unknownActions += Object.values(item.unknown ?? {}).reduce((n, k) => n + k, 0)
+      let seen = false
+      for (const { event, at } of item.events) {
+        if (o.since !== undefined && now - at > o.since) continue
+        seen = true
+        if (event.hook_event_name === 'PreToolUse') {
+          toolCalls++
+          counts.toolCalls++
+          days.add(new Date(at).toISOString().slice(0, 10))
+        }
+        await handleEvent({ ...event, agent: def.id }, {
+          home: o.home, config: o.config, map: o.map, store,
+          now: () => at, ms: () => 0, spent: () => 0, scanScripts: o.scanScripts ?? true, prune: false, salt,
+        })
+      }
+      if (seen) counts.sessions++
     }
   }
   const bySession = new Map<string, AuditLine[]>()
@@ -112,8 +70,11 @@ export const replaySessions = async (o: ReplayOptions): Promise<ReplayResult> =>
   const summaries = [...bySession].map(([session, lines]) => summarise(session, lines)).sort((a, b) => a.first.localeCompare(b.first))
   // Every secret the user pasted is listed, whatever its severity; for the rest, high and critical.
   const findings = store.lines.filter(l => l.event === 'finding' && (l.detector === 'secret-in-prompt' || l.severity === 'critical' || l.severity === 'high'))
-  return { sessions: bySession.size, toolCalls, days: days.size, summaries, findings }
+  return { sessions: bySession.size, toolCalls, days: days.size, summaries, findings, agents: perAgent, warnings }
 }
+
+// Claude Code only: `havik guard replay` and its tests.
+export const replaySessions = (o: ReplayOptions): Promise<ReplayResult> => replayAgents({ ...o, agents: [claudeCode] })
 
 // The report a person reads after one command: totals, the warning rate per active day, then every session that would have warned.
 export const formatReplay = (r: ReplayResult, dir: string, span: string, home: string, all = false): string => {

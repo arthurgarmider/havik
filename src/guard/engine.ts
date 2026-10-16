@@ -83,7 +83,7 @@ const record = async (event: HookEvent, findings: readonly GuardFinding[], seen:
 }
 
 const contextFor = (event: HookEvent, memory: Memory, o: EngineOptions): DetectContext => ({
-  roots: authorizedRoots(event.cwd, memory.roots, o.config, o.home), config: o.config, map: o.map, home: o.home, sessionId: event.session_id, armed: memory.armed, now: o.now(),
+  roots: authorizedRoots(event.cwd, memory.roots, o.config, o.home, event.agent), config: o.config, map: o.map, home: o.home, sessionId: event.session_id, agent: event.agent, armed: memory.armed, now: o.now(),
 })
 
 const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T | null> =>

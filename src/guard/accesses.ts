@@ -32,6 +32,8 @@ export const urlCarriesData = (url: string): boolean => {
   return (query !== undefined && query.length > 0) || path.split('/').some(s => PAYLOAD_SEGMENT.test(s))
 }
 const HOME_FORM = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/
+const CHANNEL_HOSTS: Record<string, string> = { telegram: 'api.telegram.org', slack: 'slack.com', discord: 'discord.com', whatsapp: 'web.whatsapp.com', signal: 'signal.org', matrix: 'matrix.org' }
+const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm
 // ssh and its relatives use a key to authenticate; the key's contents never reach the output.
 const KEY_USERS = new Set(['ssh', 'scp', 'sftp', 'rsync', 'ssh-add'])
 const IDENTITY_OPTION = /^(?:-o)?IdentityFile=/i
@@ -244,6 +246,14 @@ export const accesses = (toolName: string, input: unknown, cwd: string, home = h
       return [{ kind: 'read', path: base, via: toolName }]
     }
     case 'Bash': return bashAccesses(text('command') ?? '', cwd, home)
+    // A message a self-running agent posts to a chat app carries data out like any upload.
+    case 'Send': {
+      const channel = text('channel') ?? 'a chat app'
+      return [{ kind: 'send', host: CHANNEL_HOSTS[channel.toLowerCase()] ?? channel, via: toolName }]
+    }
+    case 'InlineCode': return [{ kind: 'inline-code', path: cwd, via: toolName }]
+    // A patch (Codex, OpenClaw) writes every file it names in an Add, Update or Delete header.
+    case 'Patch': return [...(text('patch') ?? '').matchAll(PATCH_FILE)].map((m): Access => ({ kind: 'write', path: resolve(cwd, expandPath(m[1], cwd, home) ?? m[1]), via: toolName }))
     case 'WebFetch': {
       const url = text('url') ?? ''
       const host = hostOf(url)

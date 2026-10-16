@@ -11,6 +11,7 @@ export const clean = (text: string, max: number): string =>
 export const baseLine = (event: HookEvent, ms: number, at = Date.now()) => ({
   ts: new Date(at).toISOString(),
   session_id: event.session_id.slice(0, 200),
+  agent: event.agent,
   cwd: event.cwd,
   permission_mode: event.permission_mode,
   agent_type: event.agent_type,

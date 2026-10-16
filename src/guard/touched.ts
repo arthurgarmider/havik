@@ -24,30 +24,40 @@ const row = (title: string, items: readonly string[]): string[] => {
 
 const of = (findings: readonly AuditLine[], detector: string): AuditLine[] => findings.filter(f => f.detector === detector)
 
-const story = (f: AuditLine): string => fit(`  ${f.ts.slice(0, 10)}  `, f.reason ?? f.label ?? '', `  in ${basename(f.cwd ?? '')}`)
+const story = (f: AuditLine, who?: (id: string) => string): string =>
+  fit(`  ${f.ts.slice(0, 10)}  ${who ? `${who(f.agent ?? 'claude-code')}: ` : ''}`, f.reason ?? f.label ?? '', `  in ${basename(f.cwd ?? '')}`)
 
-export const formatTouched = (r: ReplayResult, span: string, home: string, dir = `${home}/.claude/projects`): string => {
-  if (r.toolCalls === 0) return `No Claude Code sessions in the last ${span} under ${tildify(dir, home)}.`
+// `names` turns on the every-agent form: findings carry the agent's name when more than one agent appears.
+// Conversations with anything in the window, over every agent: the same count the agent rows show.
+const conversations = (r: ReplayResult): number => Object.values(r.agents).reduce((n, a) => n + a.sessions, 0)
+
+export const formatTouched = (r: ReplayResult, span: string, home: string, dir = `${home}/.claude/projects`, names?: (id: string) => string): string => {
+  if (r.toolCalls === 0) return names ? `No agent records in the last ${span}.` : `No Claude Code sessions in the last ${span} under ${tildify(dir, home)}.`
   const f = r.findings
+  const several = names !== undefined && new Set(f.map(x => x.agent ?? 'claude-code')).size > 1
+  const who = several ? names : undefined
+  const tag = (x: AuditLine, item: string | undefined): string | undefined => (item && who ? `${item} (${who(x.agent ?? 'claude-code')})` : item)
+  const kinds = (detector: string) => distinct(of(f, detector).flatMap(x => (x.kind ?? '').split(', ').map(k => tag(x, k))))
   const rows = [
-    ...row('sensitive files touched', distinct(of(f, 'sensitive-access').map(x => x.path && tildify(x.path, home)))),
-    ...row('secrets you pasted', distinct(of(f, 'secret-in-prompt').flatMap(x => (x.kind ?? '').split(', ')))),
-    ...row('secrets tools pulled in', distinct(of(f, 'secret-in-result').flatMap(x => (x.kind ?? '').split(', ')))),
-    ...row('sent out right after', distinct(of(f, 'data-leaving').map(x => x.label))),
-    ...row('risky scripts', distinct(of(f, 'script-about-to-run').map(x => x.reason?.replace(/ \(line \d+\)$/, '')))),
+    ...row('sensitive files touched', distinct(of(f, 'sensitive-access').map(x => tag(x, x.path && tildify(x.path, home))))),
+    ...row('secrets you pasted', kinds('secret-in-prompt')),
+    ...row('secrets tools pulled in', kinds('secret-in-result')),
+    ...row('sent out right after', distinct(of(f, 'data-leaving').map(x => tag(x, x.label)))),
+    ...row('risky scripts', distinct(of(f, 'script-about-to-run').map(x => tag(x, x.reason?.replace(/ \(line \d+\)$/, ''))))),
   ]
-  const critical = f.filter(x => x.severity === 'critical').slice(-SHOWN).map(story)
+  const critical = f.filter(x => x.severity === 'critical').slice(-SHOWN).map(x => story(x, who))
   const alerts = f.filter(x => x.alerted).length
   const calls = r.toolCalls.toLocaleString('en-US')
   return [
-    `havik: what Claude Code touched in the last ${span}`,
-    `${r.sessions} sessions · ${calls} tool calls · ${r.days} active days · read on this machine, nothing sent`,
+    ...(names
+      ? [`In the last ${span}, from their own records: ${conversations(r).toLocaleString('en-US')} conversations · ${calls} actions · ${r.days} active days`]
+      : [`havik: what Claude Code touched in the last ${span}`, `${r.sessions} sessions · ${calls} tool calls · ${r.days} active days · read on this machine, nothing sent`]),
     '',
     ...(rows.length > 0 ? rows : [`Nothing sensitive: no credential file, secret or send-after-read in ${calls} tool calls.`]),
     ...(critical.length > 0 ? ['', ...critical] : []),
     '',
     ...(alerts > 0 ? [`${alerts} warnings in ${r.days} days (${(alerts / Math.max(r.days, 1)).toFixed(1)} a day) would have reached the session.`] : []),
     'Live warnings, detect-only:  npx agent-havik guard install',
-    'Every session in detail:     npx agent-havik guard replay',
+    names ? 'Claude Code sessions in detail: npx agent-havik guard replay' : 'Every session in detail:     npx agent-havik guard replay',
   ].join('\n')
 }

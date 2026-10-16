@@ -1,37 +1,41 @@
 # havik
 
-What did your coding agent touch? `npx agent-havik` (the command is `havik` once installed) reads the transcripts Claude Code already keeps on your machine and shows, on one screen, the credential files, secrets and risky scripts of your last 30 days. Nothing is installed and nothing is sent.
+Which AI agents are on your computer, and what did they touch? `npx agent-havik` (the command is `havik` once installed) finds the agents on this machine (coding assistants, desktop and browser assistants, agents that run by themselves) and reads the records they already keep, to show on one screen the password and key files, secrets and risky scripts of your last 30 days. Nothing is installed and nothing is sent.
 
 ```text
 $ npx agent-havik
-havik: what Claude Code touched in the last 30d
-14 sessions · 9,204 tool calls · 12 active days · read on this machine, nothing sent
+havik: the AI agents on this computer
+Found by looking at this computer only; nothing leaves it.
 
-  sensitive files touched        3  ~/.aws/credentials, ~/.npmrc, ~/git/billing/.env
-  secrets entered the context    2  AWS access key, GitHub token
+  Claude Code           running now        coding assistant · 14 conversations · 9,204 actions
+  Hermes Agent          running now        self-running agent · starts itself on 2 schedules
+                                           reachable from Telegram · 30 conversations · 41 actions
+  Cursor                used 3 days ago    coding assistant · 6 conversations · 812 actions
+  ChatGPT Atlas         used 12 days ago   browser agent · its history is encrypted, havik cannot see it
+  Not used yet: Codex, Antigravity
 
-  2026-10-02  grep ~/.aws/credentials: AWS credentials, outside this project  in billing
+In the last 30d, from their own records: 50 conversations · 10,057 actions · 12 active days
+
+  sensitive files touched        3  ~/.aws/credentials (Claude Code), ~/.npmrc (Cursor), ~/.env (Hermes Agent)
+  secrets you pasted             1  GitHub token (Cursor)
+  sent out right after           1  Send to api.telegram.org (Hermes Agent)
+
+  2026-10-02  Claude Code: grep ~/.aws/credentials: AWS credentials, outside this project  in billing
 
 4 warnings in 12 days (0.3 a day) would have reached the session.
 Live warnings, detect-only:  npx agent-havik guard install
-Every session in detail:     npx agent-havik guard replay
 ```
 
-(An example; your numbers come from your own `~/.claude/projects`.) It is also a static scanner for AI agent setups: skills, plugins, hooks, permissions and MCP servers.
-**Prototype (0.4).** Everything runs locally. The only thing that uses the network is the optional `--ai` pass, which is off by default (see [AI checks](#ai-checks---ai)).
+(An example; your numbers come from your own agents' records.) It is also a static scanner for AI agent setups: skills, plugins, hooks, permissions and MCP servers.
+**Prototype (0.6).** Everything runs locally. The only thing that uses the network is the optional `--ai` pass, which is off by default (see [AI checks](#ai-checks---ai)).
 
-```bash
-npx agent-havik                         # what Claude Code touched in the last 30 days, on one screen
-npx agent-havik scan                    # your home directory: Claude Code config, MCP configs, skills
-npx agent-havik scan ./my-skill         # one skill or repo
-npx agent-havik scan . --format json
-npx agent-havik scan ./my-skill --ai    # opt in: also ask TypeSafe Jev about each skill
-npx agent-havik guard replay            # every past session in detail, nothing installed
-npx agent-havik guard install           # Claude Code hooks that record and warn about sensitive data access
-npx agent-havik audit                   # what the guard recorded in the last 7 days
-```
+## The AI agents on your computer
 
-Needs Node 20+. Exit code: `2` at least one critical finding, `1` at least one high finding, `3` the scan was incomplete or the command was wrong, `0` nothing serious. Incomplete means havik printed a `warning:` on stderr (also in `warnings` of the JSON output): a settings file it could not parse, a plugin entry it had to skip, a `skills_dir` or `installPath` that points outside the scan root. A mistyped `--framework`, `--severity` or `--format`, or a path that does not exist, is also `3`.
+`havik agents` (also the top of `npx agent-havik`) lists the AI agents it finds on this computer, whether each is running now, when it was last used, and what it is connected to: tool servers (by name only; a server that keeps a password in its settings file is pointed out), chat apps that can reach it, schedules it starts itself on, and whether it asks before acting. It looks with `stat` and the list of running programs, keeps program names only (never their arguments), and never opens a password or key file.
+
+It knows Claude Code, the Claude desktop app, Cursor, Codex, Gemini CLI, Antigravity, Hermes Agent and OpenClaw (settings read), and finds and names ChatGPT Atlas, the ChatGPT desktop app, Perplexity Comet, JetBrains AI agents, GitHub Copilot CLI, Windsurf, Cline, Goose, opencode, Aider, the Zed agent, Amp, Grok, Ollama, LM Studio and Docker cagent, saying why it cannot show what they did. What they did is read from each agent's own records, through the same detectors as the live guard: Claude Code (`~/.claude/projects`), Codex (`~/.codex/sessions`), Cursor (its `state.vscdb` database), Hermes Agent (its `state.db`) and the Claude desktop app's Cowork audit (its Code tab writes Claude Code's records, counted once). Each agent's tool names are translated into one vocabulary; a tool havik does not understand is counted, never guessed, and `havik agents --tools` lists them by name. Paths are judged for the agent that touched them: any agent's password or key file is critical, even for that agent; another agent's conversations or settings are critical, its other data medium; an agent's own files are its own. Databases are read with the system `sqlite3` program, read-only and without locking them; without `sqlite3`, havik says so instead of showing nothing. Running programs are not checked on Windows yet.
+
+Measured on this Mac, 2026-10-16: 12 agents found in 0.2 s; Cursor's database (345 conversations, 19,954 actions over 365 days, 100% of actions understood) gives 0.8 warnings a day; Claude Code understands all but 28 of 54,821 actions in 30 days (its `Artifact` publishing tool and a lowercase `bash`).
 
 ## Sample output
 

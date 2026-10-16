@@ -156,3 +156,45 @@ describe('judgePath: a credential directory itself', () => {
     expect(judge('/home/u/.claude')).toBe('medium')
   })
 })
+
+describe('judgePath: every agent\'s files', () => {
+  const as = (agent: string | undefined, sessionId?: string) => ({ ...ctx(), roots: authorizedRoots(CWD, [], DEFAULT_CONFIG, HOME, agent), agent, sessionId })
+  const verdict = (path: string, agent?: string, sessionId?: string) => {
+    const v = judgePath(path, as(agent, sessionId))
+    return `${v.level}${v.authorized ? ' authorized' : ''}: ${v.reason}`
+  }
+
+  it('rates any agent\'s password or key file critical, even for that agent', () => {
+    expect(verdict('/home/u/.codex/auth.json', 'codex')).toBe("critical: Codex's password or key file")
+    expect(verdict('/home/u/.hermes/.env', 'claude-code')).toBe("critical: Hermes Agent's password or key file")
+    expect(verdict('/home/u/.junie/instances/a.json', 'codex')).toBe("critical: JetBrains AI agents' password or key file")
+  })
+
+  it('rates another agent\'s conversations and settings critical, the rest of its data medium', () => {
+    expect(verdict('/home/u/.claude/projects/p/s.jsonl', 'cursor')).toBe("critical: Claude Code's conversations")
+    expect(verdict('/home/u/.cursor/projects/x/agent-transcripts/a.jsonl', 'codex')).toBe("critical: Cursor's conversations")
+    expect(verdict('/home/u/.codex/config.toml', 'cursor')).toBe("critical: Codex's settings, which can hold tokens")
+    expect(verdict('/home/u/.hermes/logs/gateway.log', 'codex')).toBe('medium: Hermes Agent application data')
+    expect(verdict('/home/u/.gemini/config/hooks.json', 'codex')).toBe('medium: Antigravity application data')
+  })
+
+  it('treats Cursor\'s per-project working files as its own, and only its transcripts as conversations', () => {
+    expect(verdict('/home/u/.cursor/projects/p/terminals/1.txt', 'cursor')).toBe("low authorized: Cursor's own files")
+    expect(verdict('/home/u/.cursor/projects/p/agent-transcripts/a/b.jsonl', 'cursor', 'c1')).toBe("critical: Cursor's other conversations")
+    expect(verdict('/home/u/.cursor/projects/p/terminals/1.txt', 'codex')).toBe('medium: Cursor application data')
+    expect(verdict('/home/u/.cursor/projects/p/agent-transcripts/a/b.jsonl', 'codex')).toBe("critical: Cursor's conversations")
+  })
+
+  it('lets an agent use its own files, but not its other conversations', () => {
+    expect(verdict('/home/u/.codex/skills/a/SKILL.md', 'codex')).toBe("low authorized: Codex's own files")
+    expect(verdict('/home/u/.codex/sessions/2026/10/16/rollout-abc.jsonl', 'codex', 'abc')).toBe("low authorized: Codex's own files")
+    expect(verdict('/home/u/.codex/sessions/2026/10/01/rollout-zzz.jsonl', 'codex', 'abc')).toBe("critical: Codex's other conversations")
+  })
+
+  it('keeps Claude Code\'s own rules for Claude Code, and authorizes its everyday files for it alone', () => {
+    expect(verdict('/home/u/.claude/projects/-home-u-proj/memory/MEMORY.md')).toBe('low authorized: Claude Code memory notes')
+    expect(verdict('/home/u/.claude/projects/-home-u-proj/memory/MEMORY.md', 'cursor')).toBe("critical: Claude Code's conversations")
+    expect(verdict('/home/u/.claude/settings.json', 'claude-code')).toBe('low authorized: inside the project')
+    expect(verdict('/home/u/.claude/settings.json', 'cursor')).toBe('medium: Claude Code application data')
+  })
+})

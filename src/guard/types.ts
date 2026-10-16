@@ -37,6 +37,8 @@ export interface HookEvent {
   readonly tool_use_id?: string
   readonly prompt?: string
   readonly last_assistant_message?: string
+  // Which agent this came from; unset means Claude Code, whose hooks were havik's first.
+  readonly agent?: string
   readonly agent_id?: string
   readonly agent_type?: string
   readonly source?: string
@@ -47,6 +49,7 @@ export type AuditEvent = 'session' | 'access' | 'finding' | 'inline-code' | 'gua
 export interface AuditLine {
   readonly ts: string
   readonly session_id: string
+  readonly agent?: string
   readonly event: AuditEvent
   readonly cwd?: string
   readonly permission_mode?: string
@@ -87,3 +90,6 @@ export interface Memory {
   // Salted fingerprints of the secrets the user pasted in this session.
   readonly pasted: ReadonlySet<string>
 }
+
+// One past event, with the time it happened: what a history reader yields and a replay feeds to the engine.
+export interface Replayed { readonly event: HookEvent; readonly at: number }

@@ -3,7 +3,10 @@ import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULTS } from '../../src/core/sensitivity'
 import { DEFAULT_CONFIG, guardMap } from '../../src/guard/policy'
-import { eventsOf, replaySessions } from '../../src/guard/replay'
+import { eventsOf, replayAgents, replaySessions } from '../../src/guard/replay'
+import { agentById } from '../../src/agents/registry'
+import type { AgentDef } from '../../src/agents/types'
+import type { Replayed } from '../../src/guard/types'
 import { withTree } from '../helpers/tmp-tree'
 
 // The guard authorizes the temp directory, and the fake HOME lives under it: give the guard a temp dir of its own.
@@ -121,5 +124,48 @@ describe('replay: what the agent said', () => {
     const line = { type: 'assistant', sessionId: 'a1', cwd: '/home/u/proj', timestamp: T(2), message: { content: [{ type: 'text', text: 'Rotate that key.' }, { type: 'tool_use', id: 'x', name: 'Bash', input: { command: 'ls' } }] } }
     const stops = eventsOf(JSON.stringify(line)).filter((e) => e.event.hook_event_name === 'Stop')
     expect(stops.map((e) => e.event.last_assistant_message)).toEqual(['Rotate that key.'])
+  })
+})
+
+describe('replayAgents: every agent through the same detectors', () => {
+  const T0 = Date.parse('2026-10-10T09:00:00.000Z')
+  const fakeAgent = (id: string, items: unknown[]): AgentDef => ({
+    ...agentById(id)!,
+    history: async function* () { for (const item of items) yield item as never },
+  })
+
+  it('names the agent on every finding, and judges paths for that agent', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const read = (id: string, path: string): Replayed => ({ at: T0, event: { session_id: 'c1', cwd: join(home, 'proj'), hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: path }, tool_use_id: id } })
+      const cursorAgent = fakeAgent('cursor', [{ id: 'c1', startedBy: 'you', events: [read('r1', join(home, '.claude/projects/p/other.jsonl'))] }])
+      const r = await ownTmp(dir, () => replayAgents({ home, config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG), now: T0 + 60_000, agents: [cursorAgent] }))
+      expect(r.findings.map((f) => `${f.agent} ${f.severity} ${f.reason}`)).toEqual(["cursor critical Read ~/.claude/projects/p/other.jsonl: Claude Code's conversations, outside this project"])
+      expect(r.agents).toEqual({ cursor: { sessions: 1, toolCalls: 1, unknownActions: 0 } })
+    })
+  })
+
+  it('reports what an agent\'s history could not be read for, prefixed with its name', async () => {
+    await withTree({}, async (dir) => {
+      const r = await ownTmp(dir, () => replayAgents({ home: join(dir, 'home'), config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG), agents: [fakeAgent('hermes', [{ warning: 'the sqlite3 program is not installed' }])] }))
+      expect(r.warnings).toEqual(['Hermes Agent: the sqlite3 program is not installed'])
+    })
+  })
+})
+
+describe('Claude Code history: tools havik does not understand', () => {
+  it('counts tool names outside its vocabulary, and not the ones known to touch nothing', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const projects = join(home, '.claude/projects/p')
+      await mkdir(projects, { recursive: true })
+      const use = (id: string, name: string) => ({ type: 'assistant', sessionId: 'k1', cwd: join(home, 'proj'), timestamp: T(1), message: { content: [{ type: 'tool_use', id, name, input: {} }] } })
+      await writeFile(join(projects, 'k1.jsonl'), [use('a', 'Read'), use('b', 'TodoWrite'), use('c', 'Artifact'), use('d', 'mcp__x__y'), use('e', 'Fancy'), use('f', 'Fancy')].map((l) => JSON.stringify(l)).join('\n'))
+      const items: unknown[] = []
+      for await (const item of agentById('claude-code')!.history!({ home, now: Date.parse(T(30)) })) items.push(item)
+      expect((items[0] as { unknown: Record<string, number> }).unknown).toEqual({ Artifact: 1, Fancy: 2 })
+      // As for every other agent, an action havik does not understand is counted, not passed on as an event.
+      expect((items[0] as { events: { event: { tool_name?: string } }[] }).events.map((e) => e.event.tool_name)).toEqual(['Read', 'TodoWrite', 'mcp__x__y'])
+    })
   })
 })

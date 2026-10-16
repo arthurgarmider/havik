@@ -5,7 +5,7 @@ import type { AuditLine } from '../../src/guard/types'
 
 const HOME = '/home/u'
 const line = (over: Partial<AuditLine>): AuditLine => ({ ts: '2026-09-21T10:00:00.000Z', session_id: 's', event: 'finding', cwd: '/home/u/proj', severity: 'high', alerted: true, ms: 0, ...over })
-const result = (findings: AuditLine[]): ReplayResult => ({ sessions: 25, toolCalls: 54318, days: 19, summaries: [], findings })
+const result = (findings: AuditLine[]): ReplayResult => ({ sessions: 25, toolCalls: 54318, days: 19, summaries: [], findings, agents: { 'claude-code': { sessions: 1, toolCalls: 1, unknownActions: 0 }, cursor: { sessions: 1, toolCalls: 1, unknownActions: 0 } }, warnings: [] })
 
 const FINDINGS = [
   line({ detector: 'sensitive-access', severity: 'critical', kind: 'read', path: '/home/u/.aws/credentials', reason: 'grep ~/.aws/credentials: AWS credentials, outside this project' }),
@@ -57,7 +57,7 @@ describe('formatTouched', () => {
 
 describe('formatTouched without transcripts', () => {
   it('says where it looked instead of reporting a clean result', () => {
-    const none = formatTouched({ sessions: 0, toolCalls: 0, days: 0, summaries: [], findings: [] }, '30d', HOME, '/home/u/.claude/projects')
+    const none = formatTouched({ sessions: 0, toolCalls: 0, days: 0, summaries: [], findings: [], agents: {}, warnings: [] }, '30d', HOME, '/home/u/.claude/projects')
     expect(none).toContain('No Claude Code sessions in the last 30d under ~/.claude/projects.')
     expect(none).not.toContain('Nothing sensitive')
   })
@@ -70,5 +70,28 @@ describe('formatTouched width', () => {
     const out = formatTouched(result(long), '30d', HOME)
     expect(out.split('\n').filter((l) => l.length > 100)).toEqual([])
     expect(out).toContain('in a-very-long-worktree-name-0123456789')
+  })
+})
+
+describe('formatTouched across agents', () => {
+  const names = (id: string) => ({ 'claude-code': 'Claude Code', cursor: 'Cursor' } as Record<string, string>)[id] ?? id
+  const many = [
+    line({ agent: 'claude-code', detector: 'sensitive-access', severity: 'critical', kind: 'read', path: '/home/u/.aws/credentials', reason: 'grep ~/.aws/credentials: AWS credentials, outside this project' }),
+    line({ agent: 'cursor', detector: 'sensitive-access', kind: 'read', path: '/home/u/.npmrc' }),
+  ]
+
+  it('names the agent next to what it touched when more than one agent did something', () => {
+    const out = formatTouched(result(many), '30d', HOME, undefined, names)
+    expect(out.split('\n')[0]).toBe('In the last 30d, from their own records: 2 conversations · 54,318 actions · 19 active days')
+    expect(out).toMatch(/sensitive files touched\s+2\s+~\/\.aws\/credentials \(Claude Code\), ~\/\.npmrc \(Cursor\)/)
+    expect(out).toMatch(/2026-09-21\s+Claude Code: grep ~\/\.aws\/credentials/)
+  })
+
+  it('leaves the names out when only one agent appears', () => {
+    expect(formatTouched(result([many[1]]), '30d', HOME, undefined, names)).toMatch(/sensitive files touched\s+1\s+~\/\.npmrc$/m)
+  })
+
+  it('says there are no records instead of naming one agent\'s folder', () => {
+    expect(formatTouched({ sessions: 0, toolCalls: 0, days: 0, summaries: [], findings: [], agents: {}, warnings: [] }, '30d', HOME, undefined, names)).toBe('No agent records in the last 30d.')
   })
 })

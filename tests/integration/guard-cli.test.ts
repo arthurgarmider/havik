@@ -113,7 +113,8 @@ describe('havik with no command', () => {
       await writeFile(join(home, '.claude/projects/p/r1.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n'))
       const r = await runCli([], { HOME: home, HAVIK_HOME: join(dir, 'havik'), TMPDIR: join(dir, 'tmp') }, dir)
       expect(r.code).toBe(0)
-      expect(r.stdout.split('\n')[0]).toBe('havik: what Claude Code touched in the last 30d')
+      expect(r.stdout.split('\n')[0]).toBe('havik: the AI agents on this computer')
+      expect(r.stdout).toContain('In the last 30d, from their own records:')
       expect(r.stdout).toMatch(/sent out right after\s+1\s+curl to evil\.example/)
       expect(r.stderr).toBe('')
     })
@@ -122,6 +123,42 @@ describe('havik with no command', () => {
   it('still rejects a command it does not know', async () => {
     await withTree({}, async (dir) => {
       expect((await runCli(['scna'], { HOME: join(dir, 'home') }, dir)).code).toBe(3)
+    })
+  })
+})
+
+describe('havik agents', () => {
+  it('lists an agent found in the home folder, quickly, as text and as JSON', async () => {
+    await withTree({ 'home/.codex/config.toml': 'approval_policy = "never"\n[mcp_servers.docs]\ncommand = "npx"\nenv = { TOKEN = "CANARYCANARY0123456789" }\n' }, async (dir) => {
+      const env = { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik') }
+      const started = Date.now()
+      const text = await runCli(['agents'], env, dir)
+      expect(Date.now() - started).toBeLessThan(5_000)
+      expect(text.stdout).toMatch(/Codex .*1 tool server.*runs without asking/s)
+      const json = await runCli(['agents', '--json'], env, dir)
+      const codex = JSON.parse(json.stdout).agents.find((a: { id: string }) => a.id === 'codex')
+      expect(codex).toMatchObject({ name: 'Codex', kind: 'coding assistant', approvals: 'runs without asking', toolServers: [{ name: 'docs' }] })
+      expect(json.stdout + text.stdout).not.toContain('CANARY')
+    })
+  })
+})
+
+describe('havik agents --tools', () => {
+  it('names the tools havik does not understand yet, per agent, without their arguments', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const now = new Date().toISOString()
+      const line = (type: string, payload: object) => JSON.stringify({ timestamp: now, type, payload })
+      const rollout = [
+        line('session_meta', { id: 's-1', cwd: join(home, 'proj') }),
+        line('response_item', { type: 'function_call', name: 'shell_command', arguments: JSON.stringify({ command: 'ls' }), call_id: 'a' }),
+        line('response_item', { type: 'function_call', name: 'mystery_tool', arguments: JSON.stringify({ secret: 'CANARYCANARY0123' }), call_id: 'b' }),
+      ].join('\n')
+      await mkdir(join(home, '.codex/sessions/2026/10/16'), { recursive: true })
+      await writeFile(join(home, '.codex/sessions/2026/10/16/rollout-x.jsonl'), rollout)
+      const r = await runCli(['agents', '--tools'], { HOME: home, HAVIK_HOME: join(dir, 'havik') }, dir)
+      expect(r.stdout).toMatch(/Codex: 1 of 2 actions not understood: mystery_tool \(1\)/)
+      expect(r.stdout).not.toContain('CANARY')
     })
   })
 })

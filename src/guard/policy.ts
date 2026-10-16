@@ -6,6 +6,8 @@ import { readTextOrNull } from '../core/fs'
 import { asArray, asRecord } from '../core/json'
 import { isInside } from '../core/paths'
 import { classifyPath, type SensitivityEntry, type SensitivityLevel, type SensitivityMap } from '../core/sensitivity'
+import { AGENTS } from '../agents/registry'
+import type { AgentDef, AgentPaths } from '../agents/types'
 import { expandPath, tildify } from './accesses'
 
 export const havikHome = (): string => process.env['HAVIK_HOME']?.trim() || join(homedir(), '.havik')
@@ -101,13 +103,55 @@ const classifyAbsolute = (path: string, home: string, map: SensitivityMap): { le
   return { level: 'low', reason: 'No specific classification' }
 }
 
+const isClaudeCode = (agent: string | undefined): boolean => agent === undefined || agent === 'claude-code'
+
 // A root that holds the home directory (a session started in ~ or /) would authorize every credential; it is dropped.
-export const authorizedRoots = (cwd: string, memoryRoots: readonly string[], config: GuardConfig, home: string): string[] => [
+// The Claude Code files read all day are authorized for Claude Code only.
+export const authorizedRoots = (cwd: string, memoryRoots: readonly string[], config: GuardConfig, home: string, agent?: string): string[] => [
   cwd, ...memoryRoots, ...config.roots, tmpdir(), join(havikHome(), 'cache'),
-  ...CLAUDE_ALLOWED.map(p => join(home, '.claude', p)),
+  ...(isClaudeCode(agent) ? CLAUDE_ALLOWED.map(p => join(home, '.claude', p)) : []),
 ].filter(root => !isInside(root, home))
 
-export interface PolicyContext { readonly roots: readonly string[]; readonly config: GuardConfig; readonly map: SensitivityMap; readonly home: string; readonly sessionId?: string }
+export interface PolicyContext { readonly roots: readonly string[]; readonly config: GuardConfig; readonly map: SensitivityMap; readonly home: string; readonly sessionId?: string; readonly agent?: string }
+
+const possessive = (name: string): string => (name.endsWith('s') ? `${name}'` : `${name}'s`)
+
+// A `*` segment stands for one folder name: ~/.cursor/projects/*/agent-transcripts.
+const wildcard = (prefix: string): RegExp =>
+  new RegExp(`^${prefix.replace(/\/$/, '').split('/').map(seg => (seg === '*' ? '[^/]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).join('/')}(?:/|$)`)
+
+const under = (tilde: string, prefix: string): boolean =>
+  prefix.includes('*') ? wildcard(prefix).test(tilde) : tilde === prefix || tilde.startsWith(`${prefix.replace(/\/$/, '')}/`)
+
+// The agent whose folder of this kind holds the path; the longest match wins (~/.gemini/config is Antigravity's, not Gemini CLI's).
+const ownerOf = (tilde: string, kind: keyof AgentPaths): AgentDef | undefined => {
+  let best: { def: AgentDef; length: number } | undefined
+  for (const def of AGENTS) {
+    for (const prefix of def.paths[kind] ?? []) {
+      if (under(tilde, prefix) && (!best || prefix.length > best.length)) best = { def, length: prefix.length }
+    }
+  }
+  return best?.def
+}
+
+// What every agent keeps: its password files, its conversations, its settings, its other data. Undefined lets the rest decide.
+const agentVerdict = (tilde: string, agent: string | undefined, sessionId: string | undefined): PathVerdict | undefined => {
+  const secret = ownerOf(tilde, 'secrets')
+  if (secret) return { level: 'critical', reason: `${possessive(secret.name)} password or key file`, authorized: false }
+  const conversations = ownerOf(tilde, 'conversations')
+  const settings = ownerOf(tilde, 'configs')
+  const owner = conversations ?? settings ?? ownerOf(tilde, 'data')
+  if (!owner) return undefined
+  if (owner.id === (agent ?? 'claude-code')) {
+    // Claude Code's own memory notes and transcript have rules of their own below.
+    if (owner.id === 'claude-code') return undefined
+    if (conversations === owner && !(sessionId && tilde.includes(sessionId))) return { level: 'critical', reason: `${possessive(owner.name)} other conversations`, authorized: false }
+    return { level: 'low', reason: `${possessive(owner.name)} own files`, authorized: true }
+  }
+  if (conversations) return { level: 'critical', reason: `${possessive(owner.name)} conversations`, authorized: false }
+  if (settings) return { level: 'critical', reason: `${possessive(owner.name)} settings, which can hold tokens`, authorized: false }
+  return { level: 'medium', reason: `${owner.name} application data`, authorized: false }
+}
 export interface PathVerdict { readonly level: SensitivityLevel; readonly reason: string; readonly authorized: boolean }
 
 const SECRETS_FILE = /(?:^|\/)\.env(?:\.[\w.-]+)?$|\.(?:pem|key)$/i
@@ -118,6 +162,8 @@ export const judgePath = (path: string, ctx: PolicyContext): PathVerdict => {
   if (inside && SECRETS_FILE.test(path)) return { level: 'medium', reason: 'secrets file inside the project', authorized: false }
   if (inside) return { level: 'low', reason: 'inside the project', authorized: true }
   const tilde = tildify(path, ctx.home)
+  const byAgent = agentVerdict(tilde, ctx.agent, ctx.sessionId)
+  if (byAgent) return byAgent
   if (MEMORY_DIR.test(tilde)) return { level: 'low', reason: 'Claude Code memory notes', authorized: true }
   if (NOTES_DIR.test(tilde)) return { level: 'medium', reason: 'Claude Code working notes', authorized: false }
   if (PROJECTS_DIR.test(tilde)) {
