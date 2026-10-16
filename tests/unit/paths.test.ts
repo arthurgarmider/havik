@@ -7,7 +7,7 @@ import { VERSION } from '../../src/version'
 describe('packageRoot', () => {
   it('finds the havik package directory from source', () => {
     const root = packageRoot()
-    expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name).toBe('havik')
+    expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name).toBe('agent-havik')
     expect(existsSync(join(root, 'rules/core'))).toBe(true)
   })
 

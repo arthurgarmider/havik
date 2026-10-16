@@ -11,10 +11,18 @@ type Settings = Record<string, any>
 export const TOOL_MATCHER = 'Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep|Bash|WebFetch|mcp__.*'
 export const MIN_CLAUDE_VERSION = '2.1.251'
 const EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart'] as const
-const GUARD_COMMAND = /dist\/guard\.js|src\/guard\/hook\.ts/
+const GUARD_COMMAND = /(?:dist|havik)\/guard\.js|src\/guard\/hook\.ts/
 
 export const guardScript = (): string => join(packageRoot(), 'dist', 'guard.js')
 export const hookCommand = (node: string, script: string): string => `"${node}" "${script}"`
+
+// The hooks run a copy of the self-contained guard bundle in the havik home, so they survive npx clearing its cache.
+export const placeGuard = async (from: string, home: string): Promise<string> => {
+  const to = join(home, 'guard.js')
+  await mkdir(home, { recursive: true })
+  await copyFile(from, to)
+  return to
+}
 const isGuardHook = (hook: unknown): boolean => GUARD_COMMAND.test(String(asRecord(hook)['command'] ?? ''))
 
 // The settings without havik's hook entries. Every other hook, and any shape havik does not understand, stays as it was.

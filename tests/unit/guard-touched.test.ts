@@ -40,8 +40,8 @@ describe('formatTouched', () => {
 
   it('ends with the warning rate and the two next commands, on one screen', () => {
     expect(out).toContain('8 warnings in 19 days (0.4 a day) would have reached the session.')
-    expect(out).toContain('npx havik guard install')
-    expect(out).toContain('npx havik guard replay')
+    expect(out).toContain('npx agent-havik guard install')
+    expect(out).toContain('npx agent-havik guard replay')
     expect(out.split('\n').length).toBeLessThanOrEqual(24)
   })
 
@@ -49,7 +49,7 @@ describe('formatTouched', () => {
     const clean = formatTouched(result([]), '30d', HOME)
     expect(clean).toContain('Nothing sensitive: no credential file, secret or send-after-read in 54,318 tool calls.')
     expect(clean).not.toContain('warnings in')
-    expect(clean).toContain('npx havik guard install')
+    expect(clean).toContain('npx agent-havik guard install')
   })
 })
 

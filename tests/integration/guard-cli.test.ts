@@ -15,7 +15,9 @@ describe('havik guard', () => {
       expect(install.code).toBe(0)
       expect(install.stdout).toContain('never blocks')
       const settings = JSON.parse(await readFile(join(dir, 'home/.claude/settings.json'), 'utf8'))
-      expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('dist/guard.js')
+      // The hooks run a copy in HAVIK_HOME, so they survive npx clearing its cache.
+      expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(join(dir, 'havik', 'guard.js'))
+      expect((await readFile(join(dir, 'havik', 'guard.js'), 'utf8')).length).toBeGreaterThan(1000)
       const status = await runCli(['guard', 'status'], env, dir)
       expect(status.stdout).toContain(join(dir, 'home/.claude/settings.json'))
       expect((await runCli(['guard', 'uninstall'], env, dir)).code).toBe(0)

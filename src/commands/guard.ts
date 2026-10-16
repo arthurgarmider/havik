@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { MIN_CLAUDE_VERSION, guardScript, guardStatus, hookCommand, installGuard, uninstallGuard, withGuard } from '../guard/install'
+import { MIN_CLAUDE_VERSION, guardScript, guardStatus, hookCommand, installGuard, placeGuard, uninstallGuard, withGuard } from '../guard/install'
 import { guardMap, havikHome, loadGuardConfig } from '../guard/policy'
 import { formatReplay, replaySessions } from '../guard/replay'
 import { auditExitCode, parseSince } from '../guard/audit'
@@ -32,11 +32,13 @@ guardCommand.command('install')
   .action(async (opts: { project: boolean; print: boolean }) => {
     const script = guardScript()
     if (!existsSync(script)) return fail(`${script} is missing; build havik first (bun run build)`)
-    const command = hookCommand(process.execPath, script)
     if (opts.print) {
-      process.stdout.write(`${JSON.stringify(withGuard({}, command), null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify(withGuard({}, hookCommand(process.execPath, script)), null, 2)}\n`)
       return
     }
+    const placed = await placeGuard(script, havikHome()).catch((e: unknown) => e instanceof Error ? e : new Error(String(e)))
+    if (placed instanceof Error) return fail(`could not copy the guard into ${havikHome()}: ${placed.message}`)
+    const command = hookCommand(process.execPath, placed)
     const file = settingsFile(opts.project)
     const result = await installGuard(file, command)
     if (!result.ok) return fail(result.error)

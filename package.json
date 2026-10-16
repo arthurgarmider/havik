@@ -1,5 +1,5 @@
 {
-  "name": "havik",
+  "name": "agent-havik",
   "version": "0.4.0",
   "description": "What did your coding agent touch? The credential files, secrets and risky scripts Claude Code used in the last 30 days, on one screen; plus a scanner for agent skills, plugins and MCP servers",
   "type": "module",

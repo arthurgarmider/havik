@@ -46,7 +46,7 @@ export const formatTouched = (r: ReplayResult, span: string, home: string, dir =
     ...(critical.length > 0 ? ['', ...critical] : []),
     '',
     ...(alerts > 0 ? [`${alerts} warnings in ${r.days} days (${(alerts / Math.max(r.days, 1)).toFixed(1)} a day) would have reached the session.`] : []),
-    'Live warnings, detect-only:  npx havik guard install',
-    'Every session in detail:     npx havik guard replay',
+    'Live warnings, detect-only:  npx agent-havik guard install',
+    'Every session in detail:     npx agent-havik guard replay',
   ].join('\n')
 }
