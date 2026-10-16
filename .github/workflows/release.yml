@@ -1,0 +1,26 @@
+name: release
+
+# When a release is published: test, then build the standalone programs and attach them with their SHA-256 sums.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun scripts/build.ts --compile
+      # A program that does not start is not uploaded.
+      - run: ./dist/bin/havik-linux-x64 --version && ./dist/bin/havik-linux-x64 agents --json > /dev/null
+      - run: gh release upload "$TAG" dist/bin/* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}

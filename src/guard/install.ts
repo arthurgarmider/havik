@@ -1,4 +1,4 @@
-import { copyFile, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { readTextOrNull } from '../core/fs'
@@ -10,12 +10,64 @@ type Settings = Record<string, any>
 
 export const TOOL_MATCHER = 'Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep|Bash|WebFetch|mcp__.*'
 export const MIN_CLAUDE_VERSION = '2.1.251'
-const EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 // havik/guard.js is what 0.4.0 installed; it must still be recognised so a re-install replaces it.
-const GUARD_COMMAND = /dist\/guard\.js|havik\/guard\.m?js|src\/guard\/hook\.ts/
+// Forward or backward slashes: the same hooks on Windows.
+const GUARD_COMMAND = /dist[\\/]guard\.js|havik[\\/]guard\.m?js|src[\\/]guard[\\/]hook\.ts|\.havik[\\/]bin[\\/]havik(?:\.exe)?"? hook/
 
 export const guardScript = (): string => join(packageRoot(), 'dist', 'guard.js')
-export const hookCommand = (node: string, script: string): string => `"${node}" "${script}"`
+export const hookCommand = (node: string, script: string, agent?: string): string => `"${node}" "${script}"${agent ? ` --agent ${agent}` : ''}`
+
+// The standalone program runs its own hook: `"…/.havik/bin/havik" hook --agent codex`.
+export const binaryHookCommand = (binary: string, agent?: string): string => `"${binary}" hook${agent ? ` --agent ${agent}` : ''}`
+
+// Built with bun build --compile, the program's modules live in Bun's embedded file system, not on disk.
+export const isStandalone = (): boolean => import.meta.url.includes('$bunfs') || import.meta.url.includes('~BUN')
+
+// The hooks run a copy of the program in the havik home, so they keep working wherever the download is moved or deleted.
+export const placeBinary = async (home: string): Promise<string> => {
+  const to = join(home, 'bin', process.platform === 'win32' ? 'havik.exe' : 'havik')
+  await mkdir(dirname(to), { recursive: true })
+  await copyFile(process.execPath, to)
+  await chmod(to, 0o755)
+  return to
+}
+
+// Where each agent reads its hooks, which events havik listens to, and in which unit the agent counts the timeout.
+export interface HookTarget {
+  readonly agent: string
+  readonly name: string
+  readonly file: (home: string) => string
+  readonly events: readonly { readonly event: string; readonly matcher?: string }[]
+  readonly timeout: number
+  readonly note?: string
+  // Cursor lists hooks flat ({command, timeout}) under a versioned file; the others nest them as Claude Code does.
+  readonly layout?: 'flat'
+  // What shows the agent is set up here, for --agent all: a file under home, or a program on the PATH.
+  readonly setUp: { readonly paths: readonly string[]; readonly bins?: readonly string[] }
+}
+
+export const TARGETS: Readonly<Record<string, HookTarget>> = {
+  'claude-code': {
+    agent: 'claude-code', name: 'Claude Code', file: home => join(home, '.claude', 'settings.json'), timeout: 5, setUp: { paths: ['.claude'], bins: ['claude'] },
+    events: [{ event: 'PreToolUse', matcher: TOOL_MATCHER }, { event: 'PostToolUse', matcher: TOOL_MATCHER }, { event: 'SessionStart' }, { event: 'UserPromptSubmit' }, { event: 'Stop' }],
+  },
+  codex: {
+    agent: 'codex', name: 'Codex', file: home => join(home, '.codex', 'hooks.json'), timeout: 5, setUp: { paths: ['.codex'], bins: ['codex'] },
+    events: [{ event: 'PreToolUse' }, { event: 'PostToolUse' }, { event: 'SessionStart' }, { event: 'UserPromptSubmit' }, { event: 'Stop' }],
+    note: 'Codex runs new hooks only after you trust them: type /hooks in Codex once.',
+  },
+  cursor: {
+    agent: 'cursor', name: 'Cursor', file: home => join(home, '.cursor', 'hooks.json'), timeout: 5, layout: 'flat', setUp: { paths: ['.cursor'], bins: ['cursor'] },
+    // Only after-hooks: Cursor's before-hooks decide permission, and an empty answer there would block the action.
+    events: [{ event: 'afterShellExecution' }, { event: 'afterFileEdit' }, { event: 'afterMCPExecution' }, { event: 'afterAgentResponse' }],
+    note: 'In Cursor havik records to the audit only: Cursor shows no message from a hook that does not decide permission. Read it with: havik audit',
+  },
+  'gemini-cli': {
+    // Antigravity also creates ~/.gemini: Gemini CLI is set up only with its settings file or its program.
+    agent: 'gemini-cli', name: 'Gemini CLI', file: home => join(home, '.gemini', 'settings.json'), timeout: 5000, setUp: { paths: ['.gemini/settings.json'], bins: ['gemini'] },
+    events: [{ event: 'BeforeTool', matcher: '.*' }, { event: 'AfterTool', matcher: '.*' }, { event: 'SessionStart' }, { event: 'BeforeAgent' }, { event: 'AfterAgent' }],
+  },
+}
 
 // The hooks run a copy of the self-contained guard bundle in the havik home, so they survive npx clearing its cache.
 // .mjs, because the bundle is an ES module and no package.json next to the copy says so.
@@ -37,6 +89,7 @@ export const withoutGuard = (settings: Settings): Settings => {
       continue
     }
     const kept = groups
+      .filter(g => !isGuardHook(g))
       .map(g => (Array.isArray(asRecord(g)['hooks']) ? { ...g, hooks: g.hooks.filter((h: unknown) => !isGuardHook(h)) } : g))
       .filter(g => !Array.isArray(asRecord(g)['hooks']) || g.hooks.length > 0)
     if (kept.length > 0) hooks[event] = kept
@@ -45,17 +98,17 @@ export const withoutGuard = (settings: Settings): Settings => {
   return Object.keys(hooks).length > 0 ? { ...rest, hooks } : rest
 }
 
-export const withGuard = (settings: Settings, command: string): Settings => {
+export const withGuardFor = (target: HookTarget, settings: Settings, command: string): Settings => {
   const base = withoutGuard(settings)
   const hooks: Settings = { ...asRecord(base['hooks']) }
-  const entry = (matcher?: string) => ({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout: 5 }] })
-  hooks['PreToolUse'] = [...asArray(hooks['PreToolUse']), entry(TOOL_MATCHER)]
-  hooks['PostToolUse'] = [...asArray(hooks['PostToolUse']), entry(TOOL_MATCHER)]
-  hooks['SessionStart'] = [...asArray(hooks['SessionStart']), entry()]
-  hooks['UserPromptSubmit'] = [...asArray(hooks['UserPromptSubmit']), entry()]
-  hooks['Stop'] = [...asArray(hooks['Stop']), entry()]
-  return { ...base, hooks }
+  for (const { event, matcher } of target.events) {
+    const entry = target.layout === 'flat' ? { command, timeout: target.timeout } : { ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command, timeout: target.timeout }] }
+    hooks[event] = [...asArray(hooks[event]), entry]
+  }
+  return target.layout === 'flat' ? { version: 1, ...base, hooks } : { ...base, hooks }
 }
+
+export const withGuard = (settings: Settings, command: string): Settings => withGuardFor(TARGETS['claude-code'], settings, command)
 
 const readSettings = async (file: string): Promise<Result<{ settings: Settings; existed: boolean }>> => {
   const text = await readTextOrNull(file)
@@ -68,7 +121,7 @@ const readSettings = async (file: string): Promise<Result<{ settings: Settings; 
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: `${file} is not a JSON object; it was left alone` }
   const hooks = (data as Settings)['hooks']
-  const odd = hooks !== undefined && (typeof hooks !== 'object' || Array.isArray(hooks) || EVENTS.some(e => hooks[e] !== undefined && !Array.isArray(hooks[e])))
+  const odd = hooks !== undefined && (typeof hooks !== 'object' || Array.isArray(hooks) || Object.values(hooks).some(groups => !Array.isArray(groups)))
   if (odd) return { ok: false, error: `${file} has hooks in a shape havik does not recognise; it was left alone` }
   return { ok: true, value: { settings: data as Settings, existed: true } }
 }
@@ -85,10 +138,18 @@ const save = async (file: string, settings: Settings, existed: boolean, now: Dat
   }
 }
 
-export const installGuard = async (file: string, command: string, now = new Date()): Promise<Result<{ backup?: string }>> => {
+// Whether this settings file runs havik's hook: what `guard status` says for agents other than Claude Code.
+export const hasGuard = async (file: string): Promise<boolean> => {
+  const read = await readSettings(file)
+  if (!read.ok || !read.value.existed) return false
+  // Nested (Claude Code, Codex, Gemini CLI) or flat (Cursor).
+  return Object.values(asRecord(read.value.settings['hooks'])).some(groups => asArray(groups).some(g => isGuardHook(g) || asArray(asRecord(g)['hooks']).some(isGuardHook)))
+}
+
+export const installGuard = async (file: string, command: string, now = new Date(), target: HookTarget = TARGETS['claude-code']): Promise<Result<{ backup?: string }>> => {
   const current = await readSettings(file)
   if (!current.ok) return current
-  return save(file, withGuard(current.value.settings, command), current.value.existed, now)
+  return save(file, withGuardFor(target, current.value.settings, command), current.value.existed, now)
 }
 
 export const uninstallGuard = async (file: string, now = new Date()): Promise<Result<{ backup?: string; removed: boolean }>> => {

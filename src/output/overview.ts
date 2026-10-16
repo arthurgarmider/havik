@@ -15,7 +15,7 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 
 const fit = (text: string): string => (text.length > MAX_LINE ? `${text.slice(0, MAX_LINE - 1)}…` : text)
 
-const whenOf = (a: AgentOverview, now: number): string => {
+export const whenOf = (a: AgentOverview, now: number): string => {
   if (a.presence.running) return 'running now'
   if (a.presence.lastUsed === undefined) return 'installed'
   const days = Math.floor((now - a.presence.lastUsed) / DAY_MS)
@@ -51,7 +51,7 @@ const partsOf = (a: AgentOverview, activity?: Activity) => {
   }
 }
 
-const detailsOf = (a: AgentOverview, activity?: Activity): string[] => {
+export const detailsOf = (a: AgentOverview, activity?: Activity): string[] => {
   const p = partsOf(a, activity)
   return [...p.kind, ...p.activity, ...p.note, ...p.servers, ...p.alarms, ...p.calm]
 }

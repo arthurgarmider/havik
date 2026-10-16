@@ -95,3 +95,11 @@ describe('formatTouched across agents', () => {
     expect(formatTouched({ sessions: 0, toolCalls: 0, days: 0, summaries: [], findings: [], agents: {}, warnings: [] }, '30d', HOME, undefined, names)).toBe('No agent records in the last 30d.')
   })
 })
+
+describe('formatTouched when a reader failed', () => {
+  it('names what could not be read instead of saying there are no records', () => {
+    const out = formatTouched({ sessions: 0, toolCalls: 0, days: 0, summaries: [], findings: [], agents: {}, warnings: ['Hermes Agent: the sqlite3 program is not installed'] }, '30d', HOME, undefined, (id) => id)
+    expect(out).toContain('Could not read: Hermes Agent: the sqlite3 program is not installed')
+    expect(out).not.toBe('No agent records in the last 30d.')
+  })
+})

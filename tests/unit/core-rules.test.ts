@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { join } from 'path'
-import { loadRules } from '../../src/core/rule-engine'
+import { loadCoreRules, loadRules } from '../../src/core/rule-engine'
 
 const RULES_DIR = join(import.meta.dir, '../../rules/core')
 
@@ -38,5 +38,14 @@ describe('core rules', () => {
     for (const rule of result.value) {
       expect(rule.owasp).toMatch(/^ASI\d{2}$/)
     }
+  })
+})
+
+describe('core rules built into the program', () => {
+  it('are the same rules as the published rule files, so a standalone binary needs no file next to it', async () => {
+    const fromFiles = await loadRules(RULES_DIR)
+    const built = loadCoreRules()
+    if (!fromFiles.ok || !built.ok) throw new Error('rules did not load')
+    expect(built.value).toEqual(fromFiles.value)
   })
 })

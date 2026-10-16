@@ -182,3 +182,41 @@ describe('guard: what the agent says', () => {
     })
   })
 })
+
+describe('guard: other agents\' hooks', () => {
+  it('warns Codex about a key file its shell command reads', async () => {
+    await withSandbox(async (s) => {
+      const r = await runHook({ session_id: 'cx', cwd: s.project, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat ~/.npmrc' }, turn_id: 't', model: 'm' }, s.env, ['--agent', 'codex'])
+      expect([r.code, r.stderr]).toEqual([0, ''])
+      expect(r.message).toContain('~/.npmrc')
+      expect((await auditOf(s, 'cx')).some((l) => l.agent === 'codex' && l.event === 'finding')).toBe(true)
+    })
+  })
+
+  it('warns Gemini CLI in its own event names, and answers {} when there is nothing to say', async () => {
+    await withSandbox(async (s) => {
+      const warn = await runHook({ session_id: 'gm', cwd: s.project, hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input: { command: 'cat ~/.npmrc' }, timestamp: 't' }, s.env, ['--agent', 'gemini-cli'])
+      expect([warn.code, warn.stderr]).toEqual([0, ''])
+      expect(warn.message).toContain('~/.npmrc')
+      const quiet = await runHook({ session_id: 'gm', cwd: s.project, hook_event_name: 'BeforeTool', tool_name: 'list_directory', tool_input: { path: s.project }, timestamp: 't' }, s.env, ['--agent', 'gemini-cli'])
+      expect([quiet.code, quiet.stdout]).toEqual([0, '{}'])
+    })
+  })
+
+  it('stays silent for a payload in another agent\'s shape that reaches the Claude Code hook', async () => {
+    await withSandbox(async (s) => {
+      const r = await runHook({ sessionId: 'cp', toolName: 'bash', toolArgs: JSON.stringify({ command: 'cat ~/.npmrc' }), cwd: s.project }, s.env)
+      expect([r.code, r.stdout, r.stderr]).toEqual([0, '', ''])
+    })
+  })
+})
+
+describe('guard: Cursor', () => {
+  it('records what a finished shell command read, and prints nothing', async () => {
+    await withSandbox(async (s) => {
+      const r = await runHook({ conversation_id: 'cu', generation_id: 'g', hook_event_name: 'afterShellExecution', command: 'cat ~/.npmrc', output: 'registry=x', workspace_roots: [s.project] }, s.env, ['--agent', 'cursor'])
+      expect([r.code, r.stdout, r.stderr]).toEqual([0, '', ''])
+      expect((await auditOf(s, 'cu')).some((l) => l.agent === 'cursor' && l.event === 'finding' && l.detector === 'sensitive-access')).toBe(true)
+    })
+  })
+})

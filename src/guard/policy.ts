@@ -158,6 +158,9 @@ const SECRETS_FILE = /(?:^|\/)\.env(?:\.[\w.-]+)?$|\.(?:pem|key)$/i
 
 export const judgePath = (path: string, ctx: PolicyContext): PathVerdict => {
   if (ctx.config.allow.includes(path)) return { level: 'low', reason: 'allowed in guard.yaml', authorized: true }
+  // An agent's password or key file is never "inside the project", even for a session started in that agent's folder.
+  const secret = ownerOf(tildify(path, ctx.home), 'secrets')
+  if (secret) return { level: 'critical', reason: `${possessive(secret.name)} password or key file`, authorized: false }
   const inside = ctx.roots.some(root => isInside(root, path))
   if (inside && SECRETS_FILE.test(path)) return { level: 'medium', reason: 'secrets file inside the project', authorized: false }
   if (inside) return { level: 'low', reason: 'inside the project', authorized: true }

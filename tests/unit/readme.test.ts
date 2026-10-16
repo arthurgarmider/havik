@@ -1,3 +1,4 @@
+import { AGENTS } from '../../src/agents/registry'
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,7 +30,7 @@ describe('README honesty', () => {
   })
 
   it('does not describe features that were removed or never built', () => {
-    expect(readme).not.toMatch(/havik (fix|badge|report|config)|--deep|LangChain|havik\.dev|attest|OWASP coverage|low false-positive/i)
+    expect(readme).not.toMatch(/havik (fix|badge|config)|--deep|LangChain|havik\.dev|attest|OWASP coverage|low false-positive/i)
   })
 
   it('says plainly that --ai is the only thing that uses the network, and what it sends', () => {
@@ -50,5 +51,17 @@ describe('README honesty', () => {
 
   it('has a Known gaps section', () => {
     expect(readme).toMatch(/^## Known gaps$/m)
+  })
+
+  it('names every agent havik knows, and what it can see of each', () => {
+    expect(AGENTS.filter((a) => !readme.includes(a.name)).map((a) => a.name)).toEqual([])
+    expect(readme).toMatch(/^## Supported agents/m)
+  })
+
+  it('says the report is a private file on this computer, and how people without a terminal get havik', () => {
+    expect(readme).toContain('havik report')
+    expect(readme).toContain('~/.havik/report.html')
+    expect(readme).toMatch(/^## Without a terminal/m)
+    expect(readme).toContain('SHA256SUMS')
   })
 })

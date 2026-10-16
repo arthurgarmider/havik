@@ -22,8 +22,8 @@ export async function withSandbox<T>(run: (s: Sandbox) => Promise<T>): Promise<T
   }
 }
 
-export async function runHook(input: string | object, env: Record<string, string>): Promise<HookRun> {
-  const proc = Bun.spawn(GUARD, { cwd: ROOT, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } })
+export async function runHook(input: string | object, env: Record<string, string>, args: readonly string[] = []): Promise<HookRun> {
+  const proc = Bun.spawn([...GUARD, ...args], { cwd: ROOT, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } })
   proc.stdin.write(typeof input === 'string' ? input : JSON.stringify(input))
   proc.stdin.end()
   const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])

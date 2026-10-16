@@ -100,7 +100,7 @@ async function* history(o: HistoryOptions): AsyncIterable<HistoryItem> {
 // Claude Code: the CLI, its IDE plugins and the desktop app's Code tab all keep their records in ~/.claude/projects.
 export const claudeCode: AgentDef = {
   id: 'claude-code', name: 'Claude Code', kind: 'coding assistant',
-  footprint: { bins: ['claude'], dirs: ['~/.claude'], activity: ['~/.claude/projects'], processes: ['claude'] },
+  footprint: { bins: ['claude'], dirs: ['~/.claude'], activity: ['~/.claude/projects'], processes: ['claude'], packages: ['@anthropic-ai/claude-code'] },
   paths: {
     data: ['~/.claude', '~/.claude.json'],
     conversations: ['~/.claude/projects', '~/.claude/history.jsonl'],

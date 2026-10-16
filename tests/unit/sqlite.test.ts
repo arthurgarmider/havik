@@ -20,6 +20,7 @@ describe('sqliteQuery', () => {
     await withTree({}, async (dir) => {
       const missing = await sqliteQuery(join(dir, 'none.db'), 'select 1')
       expect(missing.ok).toBe(false)
+      if (!missing.ok) expect(missing.error).toMatch(/could not read none\.db: \S/)
       const noProgram = await sqliteQuery(join(dir, 'none.db'), 'select 1', { program: 'sqlite3-not-here' })
       expect(noProgram).toEqual({ ok: false, error: 'the sqlite3 program is not installed, so havik cannot read this database' })
     })

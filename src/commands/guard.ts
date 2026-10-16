@@ -1,9 +1,9 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { MIN_CLAUDE_VERSION, guardScript, guardStatus, hookCommand, installGuard, placeGuard, uninstallGuard, withGuard } from '../guard/install'
+import { delimiter, join } from 'node:path'
+import { MIN_CLAUDE_VERSION, TARGETS, binaryHookCommand, guardScript, guardStatus, hasGuard, hookCommand, installGuard, isStandalone, placeBinary, placeGuard, uninstallGuard, withGuardFor, type HookTarget } from '../guard/install'
 import { guardMap, havikHome, loadGuardConfig } from '../guard/policy'
 import { formatReplay, replaySessions } from '../guard/replay'
 import { auditExitCode, parseSince } from '../guard/audit'
@@ -22,43 +22,78 @@ const claudeVersion = (): Promise<string | undefined> =>
 
 // exitOverride first, so the subcommands below inherit it: a usage mistake exits 3 like every other havik command.
 export const guardCommand = new Command('guard')
-  .description('Detect-only runtime guard for Claude Code: records and warns about sensitive data access, never blocks')
+  .description('Detect-only runtime guard for Claude Code, Codex and Gemini CLI: records and warns about sensitive data access, never blocks')
   .exitOverride()
 
+const AGENTS = ['claude-code', 'codex', 'gemini-cli', 'cursor', 'all']
+const agentOption = () => new Option('--agent <id>', 'which agent: claude-code, codex, gemini-cli, cursor (records only), or all that are set up here').choices(AGENTS).default('claude-code')
+
+// `all` means every agent with a settings folder on this computer.
+const onPath = (bin: string): boolean => (process.env.PATH ?? '').split(delimiter).some(dir => dir && existsSync(join(dir, bin)))
+const isSetUp = (t: HookTarget): boolean => t.setUp.paths.some(p => existsSync(join(homedir(), p))) || (t.setUp.bins ?? []).some(onPath)
+const targetsFor = (agent: string): HookTarget[] => (agent === 'all' ? Object.values(TARGETS).filter(isSetUp) : [TARGETS[agent]])
+
+// --project applies to Claude Code, whose project settings live in ./.claude.
+const fileFor = (t: HookTarget, project: boolean): string => (t.agent === 'claude-code' ? settingsFile(project) : t.file(homedir()))
+const agentFlag = (t: HookTarget): string | undefined => (t.agent === 'claude-code' ? undefined : t.agent)
+const commandFor = (t: HookTarget, script: string): string => (isStandalone() ? binaryHookCommand(script, agentFlag(t)) : hookCommand(process.execPath, script, agentFlag(t)))
+
 guardCommand.command('install')
-  .description('Add the guard hooks to ~/.claude/settings.json (a backup is written first)')
-  .option('--project', 'Install into ./.claude/settings.json instead', false)
+  .description('Add the guard hooks to an agent\'s settings: Claude Code (~/.claude/settings.json), Codex or Gemini CLI (a backup is written first)')
+  .option('--project', 'Install into ./.claude/settings.json instead (Claude Code)', false)
   .option('--print', 'Only print the hooks JSON, for managed settings or review', false)
-  .action(async (opts: { project: boolean; print: boolean }) => {
-    const script = guardScript()
+  .addOption(agentOption())
+  .action(async (opts: { project: boolean; print: boolean; agent: string }) => {
+    const script = isStandalone() ? process.execPath : guardScript()
     if (!existsSync(script)) return fail(`${script} is missing; build havik first (bun run build)`)
+    const targets = targetsFor(opts.agent)
     if (opts.print) {
-      process.stdout.write(`${JSON.stringify(withGuard({}, hookCommand(process.execPath, script)), null, 2)}\n`)
+      if (targets.length !== 1) return fail('--print shows one agent\'s hooks: name it with --agent')
+      process.stdout.write(`${JSON.stringify(withGuardFor(targets[0], {}, commandFor(targets[0], script)), null, 2)}\n`)
       return
     }
-    const placed = await placeGuard(script, havikHome()).catch((e: unknown) => e instanceof Error ? e : new Error(String(e)))
+    if (targets.length === 0) return fail('no agent with hooks havik can install into is set up here')
+    const placed = await (isStandalone() ? placeBinary(havikHome()) : placeGuard(script, havikHome())).catch((e: unknown) => e instanceof Error ? e : new Error(String(e)))
     if (placed instanceof Error) return fail(`could not copy the guard into ${havikHome()}: ${placed.message}`)
-    const command = hookCommand(process.execPath, placed)
-    const file = settingsFile(opts.project)
-    const result = await installGuard(file, command)
-    if (!result.ok) return fail(result.error)
-    const backup = result.value.backup ? ` (backup: ${result.value.backup})` : ''
-    process.stdout.write(`havik guard installed in ${file}${backup}.\nIt records to ${join(havikHome(), 'audit')} and warns in the session; it never blocks. Read it with: havik audit\nRe-run this command after upgrading havik or Node.\n`)
+    const lines: string[] = []
+    for (const t of targets) {
+      const file = fileFor(t, opts.project)
+      const result = await installGuard(file, commandFor(t, placed), new Date(), t)
+      if (!result.ok) return fail(result.error)
+      lines.push(`havik guard installed for ${t.name} in ${file}${result.value.backup ? ` (backup: ${result.value.backup})` : ''}.`, ...(t.note ? [t.note] : []))
+    }
+    process.stdout.write(`${[...lines, `It records to ${join(havikHome(), 'audit')} and warns in the session; it never blocks. Read it with: havik audit`, 'Re-run this command after upgrading havik or Node.'].join('\n')}\n`)
   })
 
 guardCommand.command('uninstall')
   .description('Remove the guard hooks')
-  .option('--project', 'Remove from ./.claude/settings.json instead', false)
-  .action(async (opts: { project: boolean }) => {
-    const file = settingsFile(opts.project)
-    const result = await uninstallGuard(file)
-    if (!result.ok) return fail(result.error)
-    process.stdout.write(result.value.removed ? `havik guard removed from ${file}.\n` : `havik guard was not installed in ${file}.\n`)
+  .option('--project', 'Remove from ./.claude/settings.json instead (Claude Code)', false)
+  .addOption(agentOption())
+  .action(async (opts: { project: boolean; agent: string }) => {
+    for (const t of targetsFor(opts.agent)) {
+      const file = fileFor(t, opts.project)
+      const result = await uninstallGuard(file)
+      if (!result.ok) return fail(result.error)
+      process.stdout.write(result.value.removed ? `havik guard removed from ${file}.\n` : `havik guard was not installed in ${file}.\n`)
+    }
   })
 
 guardCommand.command('status')
   .description('Where the guard is installed and what could silence it; exit 0 when it will run, 3 otherwise')
-  .action(async () => {
+  .addOption(agentOption())
+  .action(async (opts: { agent: string }) => {
+    const others = targetsFor(opts.agent).filter(t => t.agent !== 'claude-code')
+    if (opts.agent !== 'all' && others.length > 0) {
+      const t = others[0]
+      const installed = await hasGuard(t.file(homedir()))
+      process.stdout.write(`${t.name}: ${installed ? `installed in ${t.file(homedir())}` : `not installed (havik guard install --agent ${t.agent})`}\n`)
+      process.exitCode = installed ? 0 : 3
+      return
+    }
+    for (const t of others) {
+      const installed = await hasGuard(t.file(homedir()))
+      process.stdout.write(`${t.name}: ${installed ? `installed in ${t.file(homedir())}` : `not installed (havik guard install --agent ${t.agent})`}\n`)
+    }
     const s = await guardStatus(process.cwd(), homedir(), await claudeVersion())
     const lines = [
       s.installedIn.length > 0 ? `installed in: ${s.installedIn.join(', ')}` : 'not installed (havik guard install)',

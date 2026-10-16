@@ -42,6 +42,7 @@ export const machine = async (): Promise<Machine> => {
 
 const isAgentProcess = (def: AgentDef, p: Proc): boolean =>
   (def.footprint.processes ?? []).some(name => p.exe === name || (p.script?.startsWith(name) ?? false))
+  || (p.pkg !== undefined && (def.footprint.packages ?? []).includes(p.pkg))
 
 const isToolServer = (p: Proc): boolean => [p.exe, p.script, p.pkg].some(s => s !== undefined && TOOL_SERVER.test(s))
 

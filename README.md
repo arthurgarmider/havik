@@ -27,7 +27,33 @@ Live warnings, detect-only:  npx agent-havik guard install
 ```
 
 (An example; your numbers come from your own agents' records.) It is also a static scanner for AI agent setups: skills, plugins, hooks, permissions and MCP servers.
-**Prototype (0.6).** Everything runs locally. The only thing that uses the network is the optional `--ai` pass, which is off by default (see [AI checks](#ai-checks---ai)).
+**Prototype (0.7).** Everything runs locally. The only thing that uses the network is the optional `--ai` pass, which is off by default (see [AI checks](#ai-checks---ai)).
+
+## Without a terminal
+
+`havik report` (or `npx agent-havik report`) writes the same view as a page, `~/.havik/report.html`, and opens it in your browser: the agents on this computer as cards, what they did, the most serious items, what to do about them in plain words, and the words used explained. The page is one private file (readable only by you) with a strict content policy: no script, nothing loaded from the internet, every value from an agent's records redacted, so it can be printed or passed on.
+
+To use havik without Node, download the program for your computer from the [releases page](https://github.com/arthurgarmider/havik/releases): `havik-darwin-arm64` (Mac with Apple silicon), `havik-darwin-x64` (older Mac), `havik-linux-x64`, `havik-linux-arm64` or `havik-windows-x64.exe`, and check it against `SHA256SUMS` from the same release. The program is not yet signed by Apple or Microsoft, so the first start asks for confirmation: on a Mac, right-click it in Finder and choose Open (or run `xattr -d com.apple.quarantine havik-darwin-arm64` once). Then run it with `report` to get the page; `guard install` from the program copies it to `~/.havik/bin/havik`, so the hooks keep working wherever the download goes.
+
+## Supported agents
+
+| Agent | Found by | Settings read | What it did | Live warnings |
+|---|---|---|---|---|
+| Claude Code | `claude`, `~/.claude` | tool servers, whether it asks first | transcripts in `~/.claude/projects` | yes |
+| Claude (desktop app) | the app | tool servers, installed extensions | Cowork's audit; its Code tab under Claude Code | through Claude Code |
+| Cursor | the app, `~/.cursor` | tool servers (a password in their settings is pointed out) | its `state.vscdb` database | recorded, no message (after-hooks only) |
+| Codex | `codex`, `~/.codex` | tool servers, approval policy | session rollouts in `~/.codex/sessions` | yes, after `/hooks` trusts them |
+| Gemini CLI | `gemini`, `~/.gemini` | tool servers | not read yet | yes |
+| Antigravity | the app, `agy` | tool servers | not read yet | no |
+| Hermes Agent | `hermes`, `~/.hermes` | schedules, chat apps that reach it, approvals | its `state.db` database | no (it offers no hooks to havik) |
+| OpenClaw | `openclaw`, `~/.openclaw` | chat channels, tool servers | not read yet | no |
+| ChatGPT Atlas | the app | | its history is encrypted: havik cannot see it | no |
+| ChatGPT (desktop app), Perplexity Comet, Amp | the app or program | | their history is in the company's account, not on this computer | no |
+| JetBrains AI agents | `claude-agent-acp`, `codex-acp`, `~/.junie` | | shows under Claude Code or Codex | through them |
+| GitHub Copilot CLI, Windsurf, Cline, Goose, opencode, Zed agent, Grok | the app, program or data folder | | found and named; their records are not read yet | no |
+| Aider | `aider` | | keeps its history inside each project folder | no |
+| Ollama, LM Studio | the app or program | | models on this computer; they keep no record of actions | no |
+| Docker cagent | `cagent` | | keeps no history havik can read | no |
 
 ## The AI agents on your computer
 
@@ -95,6 +121,8 @@ Measured on this Mac, 2026-10-16: 12 agents found in 0.2 s; Cursor's database (3
 ## Runtime guard (`havik guard`)
 
 `havik guard replay` is the place to start: it reads the transcripts Claude Code already keeps under `~/.claude/projects` and prints what the guard would have said about your last 30 days, without installing anything or sending anything. `havik guard install` then copies the self-contained guard to `~/.havik/guard.mjs` and adds five hooks that run it to `~/.claude/settings.json` (`--project` for `.claude/settings.json`, `--print` to only show them; a backup is written first). From then on every Claude Code tool call is checked as it happens. The guard **never blocks** and never changes what the model sees: it records to `~/.havik/audit/` and, for a new critical or high finding, shows one `havik:` line in the session. `havik audit` summarises the records; `havik guard status` says where the hooks are and what could silence them; `havik guard uninstall` removes exactly what install added.
+
+**Other agents.** `havik guard install --agent codex|gemini-cli|cursor|all` installs the same guard into each agent's own settings file: Codex reads `~/.codex/hooks.json` (it runs new hooks only after you trust them with `/hooks` in Codex), Gemini CLI reads `~/.gemini/settings.json`, and Cursor reads `~/.cursor/hooks.json`. Codex and Gemini CLI show havik's warning in the session. In Cursor havik installs only after-hooks (a finished shell command, a file edit, a tool-server call, a reply) and records them to the audit without a message: Cursor's before-hooks decide permission, and an empty answer there would block the action. So Cursor's file reads are not seen live; the replay of its records still sees them. Copilot CLI, VS Code and Devin read Claude Code's hook settings too; havik recognises their payloads as not Claude Code's and stays silent for them. `--agent all` installs into every agent whose settings folder exists; `status` and `uninstall` take the same option.
 
 | Detector | Fires when |
 |---|---|

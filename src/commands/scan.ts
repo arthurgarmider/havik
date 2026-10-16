@@ -2,7 +2,7 @@ import { Command, Option } from 'commander'
 import { basename, dirname, join, resolve } from 'path'
 import { homedir } from 'os'
 import { existsSync } from 'fs'
-import { loadRules } from '../core/rule-engine'
+import { loadCoreRules } from '../core/rule-engine'
 import { calculateScore } from '../core/scoring'
 import { detectOpenClaw, discoverOpenClaw, analyzeOpenClaw } from '../adapters/openclaw'
 import { detectMcp, discoverMcp, analyzeMcp, mergeMcpServers } from '../adapters/mcp'
@@ -12,7 +12,6 @@ import { analyzeClaudeCode } from '../adapters/claude-code-analyzer'
 import { formatTerminal } from '../output/terminal'
 import { formatJson } from '../output/json'
 import { findAgentInstalls } from '../core/discovery'
-import { packageRoot } from '../core/paths'
 import { findFiles } from '../core/fs'
 import { dedupeAndRenumber } from '../core/findings'
 import { createJudge, jevHost } from '../ai/client'
@@ -21,7 +20,6 @@ import calibration from '../../data/jev-calibration.json'
 import { analyzeSkill, type SkillTarget } from '../core/skill-analyzer'
 import type { AgentInventory, Finding, McpServerInfo, Result, Severity, ScanResult } from '../core/types'
 
-const RULES_DIR = join(packageRoot(), 'rules/core')
 const FRAMEWORKS = ['openclaw', 'claude-code', 'mcp', 'generic']
 const SEVERITIES = ['critical', 'high', 'medium', 'low']
 const FORMATS = ['terminal', 'json']
@@ -127,7 +125,7 @@ async function runScan(scanPath: string, opts: {
   ai: boolean
 }): Promise<ScanResult> {
   const start = Date.now()
-  const rulesResult = await loadRules(RULES_DIR)
+  const rulesResult = loadCoreRules()
   if (!rulesResult.ok) throw new Error(`Failed to load rules: ${rulesResult.error}`)
   const rules = rulesResult.value
 

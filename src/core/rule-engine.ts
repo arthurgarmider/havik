@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { trace } from './trace'
 import { findFiles, readText } from './fs'
+import { CORE_RULE_FILES } from './core-rules'
 import { ruleSchema } from './rule-schema'
 import type { Rule, Result } from './types'
 
@@ -19,6 +20,34 @@ export const validateRule = trace('validateRule', (data: unknown): Result<Rule> 
   }
   return { ok: true, value: data as Rule }
 })
+
+// Every YAML document in one rule file, each validated against the schema.
+const parseRules = (file: string, text: string): Result<Rule[]> => {
+  const documents: unknown[] = []
+  yaml.loadAll(text, (doc) => { documents.push(doc) }, { schema: yaml.DEFAULT_SCHEMA })
+  const rules: Rule[] = []
+  for (const parsed of documents) {
+    const result = validateRule(parsed)
+    if (!result.ok) return { ok: false, error: `Invalid rule in ${file}: ${result.error}` }
+    rules.push(result.value)
+  }
+  return { ok: true, value: rules }
+}
+
+// The rules havik ships, from the copies built into the program.
+export const loadCoreRules = (): Result<readonly Rule[]> => {
+  try {
+    const rules: Rule[] = []
+    for (const { file, text } of [...CORE_RULE_FILES].sort((a, b) => a.file.localeCompare(b.file))) {
+      const parsed = parseRules(file, text)
+      if (!parsed.ok) return parsed
+      rules.push(...parsed.value)
+    }
+    return { ok: true, value: rules }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
 
 export const loadRules = trace('loadRules', async (directory: string): Promise<Result<readonly Rule[]>> => {
   try {
@@ -36,15 +65,9 @@ export const loadRules = trace('loadRules', async (directory: string): Promise<R
         return { ok: false, error: `File too large: ${file} (${size} bytes)` }
       }
 
-      const text = await readText(path)
-      const documents: unknown[] = []
-      yaml.loadAll(text, (doc) => { documents.push(doc) }, { schema: yaml.DEFAULT_SCHEMA })
-
-      for (const parsed of documents) {
-        const result = validateRule(parsed)
-        if (!result.ok) return { ok: false, error: `Invalid rule in ${file}: ${result.error}` }
-        results.push(result.value)
-      }
+      const parsed = parseRules(file, await readText(path))
+      if (!parsed.ok) return parsed
+      results.push(...parsed.value)
     }
 
     return { ok: true, value: results }

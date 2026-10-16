@@ -11,6 +11,7 @@ export interface Footprint {
   readonly dirs?: readonly string[]       // data folders or files
   readonly activity?: readonly string[]   // where its newest file says when it was last used
   readonly processes?: readonly string[]  // running program names, or the start of a runner's script name
+  readonly packages?: readonly string[]   // npm packages it runs from (`node …/cli.js`)
 }
 
 export interface AgentPaths {

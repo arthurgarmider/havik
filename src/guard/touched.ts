@@ -32,7 +32,12 @@ const story = (f: AuditLine, who?: (id: string) => string): string =>
 const conversations = (r: ReplayResult): number => Object.values(r.agents).reduce((n, a) => n + a.sessions, 0)
 
 export const formatTouched = (r: ReplayResult, span: string, home: string, dir = `${home}/.claude/projects`, names?: (id: string) => string): string => {
-  if (r.toolCalls === 0) return names ? `No agent records in the last ${span}.` : `No Claude Code sessions in the last ${span} under ${tildify(dir, home)}.`
+  // A reader that failed is said, never hidden behind "no records" or "nothing sensitive".
+  const unread = [...new Set(r.warnings)].map(w => fit('Could not read: ', w))
+  if (r.toolCalls === 0) {
+    if (names && unread.length > 0) return [`Nothing read in the last ${span}.`, ...unread].join('\n')
+    return names ? `No agent records in the last ${span}.` : `No Claude Code sessions in the last ${span} under ${tildify(dir, home)}.`
+  }
   const f = r.findings
   const several = names !== undefined && new Set(f.map(x => x.agent ?? 'claude-code')).size > 1
   const who = several ? names : undefined
@@ -55,6 +60,7 @@ export const formatTouched = (r: ReplayResult, span: string, home: string, dir =
     '',
     ...(rows.length > 0 ? rows : [`Nothing sensitive: no credential file, secret or send-after-read in ${calls} tool calls.`]),
     ...(critical.length > 0 ? ['', ...critical] : []),
+    ...(unread.length > 0 ? ['', ...unread] : []),
     '',
     ...(alerts > 0 ? [`${alerts} warnings in ${r.days} days (${(alerts / Math.max(r.days, 1)).toFixed(1)} a day) would have reached the session.`] : []),
     'Live warnings, detect-only:  npx agent-havik guard install',

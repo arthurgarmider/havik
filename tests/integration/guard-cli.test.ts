@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'bun:test'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ROOT, runCli } from '../helpers/scan-cli'
 import { withTree } from '../helpers/tmp-tree'
@@ -159,6 +159,81 @@ describe('havik agents --tools', () => {
       const r = await runCli(['agents', '--tools'], { HOME: home, HAVIK_HOME: join(dir, 'havik') }, dir)
       expect(r.stdout).toMatch(/Codex: 1 of 2 actions not understood: mystery_tool \(1\)/)
       expect(r.stdout).not.toContain('CANARY')
+    })
+  })
+})
+
+describe('havik guard install --agent', () => {
+  it('installs into Codex and Gemini CLI, says what Codex needs, and removes exactly that', async () => {
+    await withTree({ 'home/.codex/config.toml': 'model = "x"\n', 'home/.gemini/settings.json': '{"theme":"dark"}' }, async (dir) => {
+      const env = { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik') }
+      const codex = await runCli(['guard', 'install', '--agent', 'codex'], env, dir)
+      expect(codex.code).toBe(0)
+      expect(codex.stdout).toContain('/hooks')
+      const hooks = JSON.parse(await readFile(join(dir, 'home/.codex/hooks.json'), 'utf8'))
+      expect(hooks.hooks.PreToolUse[0].hooks[0].command).toContain('--agent codex')
+      const all = await runCli(['guard', 'install', '--agent', 'all'], env, dir)
+      expect(all.code).toBe(0)
+      const gemini = JSON.parse(await readFile(join(dir, 'home/.gemini/settings.json'), 'utf8'))
+      expect([gemini.theme, gemini.hooks.BeforeTool[0].hooks[0].command.includes('--agent gemini-cli'), gemini.hooks.BeforeTool[0].hooks[0].timeout]).toEqual(['dark', true, 5000])
+      const status = await runCli(['guard', 'status', '--agent', 'all'], env, dir)
+      expect(status.stdout).toMatch(/Codex: installed in .*hooks\.json/)
+      expect(status.stdout).toMatch(/Gemini CLI: installed in .*settings\.json/)
+      expect((await runCli(['guard', 'uninstall', '--agent', 'all'], env, dir)).code).toBe(0)
+      expect(JSON.parse(await readFile(join(dir, 'home/.gemini/settings.json'), 'utf8'))).toEqual({ theme: 'dark' })
+      expect(await readFile(join(dir, 'home/.codex/config.toml'), 'utf8')).toBe('model = "x"\n')
+    })
+  })
+
+  it('refuses an agent it cannot install into', async () => {
+    await withTree({}, async (dir) => expect((await runCli(['guard', 'install', '--agent', 'atlas'], { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik') }, dir)).code).toBe(3))
+  })
+})
+
+describe('havik report', () => {
+  it('writes a private page in the havik folder and says where, without opening it when asked not to', async () => {
+    await withTree({}, async (dir) => {
+      const env = { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik'), TMPDIR: join(dir, 'tmp') }
+      await mkdir(join(dir, 'tmp'), { recursive: true })
+      const r = await runCli(['report', '--no-open'], env, dir)
+      expect(r.code).toBe(0)
+      const file = join(dir, 'havik', 'report.html')
+      expect(r.stdout).toContain(file)
+      expect((await readFile(file, 'utf8')).startsWith('<!doctype html>')).toBe(true)
+      expect(((await stat(file)).mode & 0o777).toString(8)).toBe('600')
+    })
+  })
+})
+
+describe('havik hook', () => {
+  it('is the guard, run by the program itself: one warning out, exit 0', async () => {
+    await withTree({ 'home/.npmrc': '//registry.npmjs.org/:_authToken=x' }, async (dir) => {
+      const env = { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik'), TMPDIR: join(dir, 'tmp') }
+      await mkdir(join(dir, 'tmp'), { recursive: true })
+      const event = JSON.stringify({ session_id: 'b1', cwd: join(dir, 'proj'), hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat ~/.npmrc' } })
+      const proc = Bun.spawn([...(process.env.HAVIK_CLI ?? 'bun src/index.ts').split(' '), 'hook', '--agent', 'codex'], { cwd: ROOT, stdin: new Blob([event]), stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } })
+      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+      expect([await proc.exited, err]).toEqual([0, ''])
+      expect(JSON.parse(out).systemMessage).toContain('~/.npmrc')
+    })
+  })
+})
+
+describe('the hidden hook command never fails a session', () => {
+  it('exits 0 with nothing printed on a command line it does not understand', async () => {
+    const proc = Bun.spawn([...(process.env.HAVIK_CLI ?? 'bun src/index.ts').split(' '), 'hook', '--agent'], { cwd: ROOT, stdin: new Blob(['{}']), stdout: 'pipe', stderr: 'pipe' })
+    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    expect([await proc.exited, out, err]).toEqual([0, '', ''])
+  })
+})
+
+describe('havik guard install --agent all', () => {
+  it('leaves Gemini CLI alone when only Antigravity created ~/.gemini', async () => {
+    await withTree({ 'home/.gemini/antigravity/brain/.keep': '' }, async (dir) => {
+      const env = { HOME: join(dir, 'home'), HAVIK_HOME: join(dir, 'havik') }
+      await runCli(['guard', 'install', '--agent', 'all'], env, dir)
+      // A machine with Gemini CLI's program installed is set up for it; the claim holds where it is not.
+      if (!Bun.which('gemini')) expect(await Bun.file(join(dir, 'home/.gemini/settings.json')).exists()).toBe(false)
     })
   })
 })

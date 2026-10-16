@@ -198,3 +198,10 @@ describe('judgePath: every agent\'s files', () => {
     expect(verdict('/home/u/.claude/settings.json', 'cursor')).toBe('medium: Claude Code application data')
   })
 })
+
+describe('judgePath: a password file is never "inside the project"', () => {
+  it('rates an agent\'s key file critical even when the session runs in that agent\'s folder', () => {
+    const c = { ...ctx(), roots: authorizedRoots('/home/u/.codex', [], DEFAULT_CONFIG, HOME, 'codex'), agent: 'codex' }
+    expect(judgePath('/home/u/.codex/auth.json', c)).toMatchObject({ level: 'critical', authorized: false })
+  })
+})

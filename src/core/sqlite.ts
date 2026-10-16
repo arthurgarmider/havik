@@ -15,7 +15,8 @@ export const sqliteQuery = (
     execFile(opts.program ?? 'sqlite3', args, { timeout: opts.timeoutMs ?? 10_000, maxBuffer: opts.maxBytes ?? 64 * 1024 * 1024 }, (error, stdout) => {
       if (error) {
         const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
-        return resolve({ ok: false, error: missing ? NOT_INSTALLED : `could not read ${basename(db)}: ${String(error.message).split('\n').pop()}` })
+        const why = error.killed ? `it took longer than ${Math.round((opts.timeoutMs ?? 10_000) / 1000)} s` : String(error.message).trim().split('\n').pop()
+        return resolve({ ok: false, error: missing ? NOT_INSTALLED : `could not read ${basename(db)}: ${why}` })
       }
       try {
         resolve({ ok: true, value: stdout.trim() ? JSON.parse(stdout) : [] })

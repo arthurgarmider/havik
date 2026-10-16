@@ -47,6 +47,14 @@ describe('presenceOf', () => {
     })
   })
 
+  it('sees Claude Code installed with npm, which runs as node and its package', async () => {
+    await withTree({}, async (dir) => {
+      const m = machineAt(dir, [p(40, 1, 'node', { script: 'cli.js', pkg: '@anthropic-ai/claude-code' }), p(41, 40, 'node', { pkg: 'firecrawl-mcp' })])
+      const presence = await presenceOf(agentById('claude-code')!, m)
+      expect([presence.running, presence.toolServers]).toEqual([true, 1])
+    })
+  })
+
   it('tells Claude Code from the Claude desktop app by the program name', async () => {
     await withTree({}, async (dir) => {
       const m = machineAt(dir, [p(30, 1, 'Claude')])
