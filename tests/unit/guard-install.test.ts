@@ -94,3 +94,14 @@ describe('guardStatus', () => {
     expect([compareVersions('2.1.251', '2.1.251'), compareVersions('2.1.300', '2.1.251'), compareVersions('2.0.999', '2.1.0')]).toEqual([0, 1, -1])
   })
 })
+
+describe('withGuard over an install from 0.4.0', () => {
+  it('replaces the hooks that ran ~/.havik/guard.js with the ones that run guard.mjs', () => {
+    const old = withGuard({}, hookCommand('/n', '/home/u/.havik/guard.js'))
+    const next = withGuard(old, hookCommand('/n', '/home/u/.havik/guard.mjs'))
+    const commands = JSON.stringify(next)
+    expect(commands).toContain('guard.mjs')
+    expect(commands).not.toContain('guard.js"')
+    expect(withoutGuard(old)).toEqual({})
+  })
+})

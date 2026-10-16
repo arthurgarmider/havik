@@ -11,14 +11,16 @@ type Settings = Record<string, any>
 export const TOOL_MATCHER = 'Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep|Bash|WebFetch|mcp__.*'
 export const MIN_CLAUDE_VERSION = '2.1.251'
 const EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart'] as const
-const GUARD_COMMAND = /(?:dist|havik)\/guard\.js|src\/guard\/hook\.ts/
+// havik/guard.js is what 0.4.0 installed; it must still be recognised so a re-install replaces it.
+const GUARD_COMMAND = /dist\/guard\.js|havik\/guard\.m?js|src\/guard\/hook\.ts/
 
 export const guardScript = (): string => join(packageRoot(), 'dist', 'guard.js')
 export const hookCommand = (node: string, script: string): string => `"${node}" "${script}"`
 
 // The hooks run a copy of the self-contained guard bundle in the havik home, so they survive npx clearing its cache.
+// .mjs, because the bundle is an ES module and no package.json next to the copy says so.
 export const placeGuard = async (from: string, home: string): Promise<string> => {
-  const to = join(home, 'guard.js')
+  const to = join(home, 'guard.mjs')
   await mkdir(home, { recursive: true })
   await copyFile(from, to)
   return to

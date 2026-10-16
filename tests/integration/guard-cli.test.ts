@@ -15,9 +15,15 @@ describe('havik guard', () => {
       expect(install.code).toBe(0)
       expect(install.stdout).toContain('never blocks')
       const settings = JSON.parse(await readFile(join(dir, 'home/.claude/settings.json'), 'utf8'))
-      // The hooks run a copy in HAVIK_HOME, so they survive npx clearing its cache.
-      expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(join(dir, 'havik', 'guard.js'))
-      expect((await readFile(join(dir, 'havik', 'guard.js'), 'utf8')).length).toBeGreaterThan(1000)
+      // The hooks run a copy in HAVIK_HOME, so they survive npx clearing its cache; the copy must run on its own.
+      const command: string = settings.hooks.PreToolUse[0].hooks[0].command
+      expect(command).toContain(join(dir, 'havik'))
+      const [node, script] = [...command.matchAll(/"([^"]+)"/g)].map((m) => m[1])
+      const event = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 't', cwd: dir, tool_name: 'Read', tool_input: { file_path: join(dir, 'home/.aws/credentials') } })
+      const hook = Bun.spawn([node, script], { cwd: dir, stdin: new Blob([event]), stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env, TMPDIR: dir } })
+      const [out, err] = await Promise.all([new Response(hook.stdout).text(), new Response(hook.stderr).text()])
+      expect([await hook.exited, err]).toEqual([0, ''])
+      expect(out).toContain('havik:')
       const status = await runCli(['guard', 'status'], env, dir)
       expect(status.stdout).toContain(join(dir, 'home/.claude/settings.json'))
       expect((await runCli(['guard', 'uninstall'], env, dir)).code).toBe(0)
