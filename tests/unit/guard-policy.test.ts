@@ -115,6 +115,44 @@ describe('judgePath: files that live next to secrets but are not secrets', () =>
   })
 })
 
+describe('judgePath: public certificates', () => {
+  it('rates a certificate at medium, by its name or folder', () => {
+    for (const p of ['/srv/tls/cert.pem', '/srv/tls/fullchain.pem', '/srv/tls/chain.pem', '/srv/tls/server-cert.pem', '/srv/tls/client_cert.pem', '/opt/ca.pem', '/opt/rootCA.pem', '/opt/root-ca.pem', '/opt/cacert.pem', '/opt/ca-bundle.pem', '/etc/ssl/certs/Some_Root.pem', '/private/etc/ssl/certs/Some_Root.pem', '/usr/lib/python3/site-packages/certifi/roots.pem', '/usr/share/ca-certificates/mozilla/Some_Root.pem']) expect(judge(p)).toBe('medium')
+  })
+
+  it('keeps every other .pem high, and any name that mentions a key', () => {
+    for (const p of ['/srv/tls/privkey.pem', '/srv/tls/server.pem', '/srv/tls/client.pem', '/srv/tls/bundle.pem', '/srv/tls/mica.pem', '/srv/tls/ca-key.pem', '/srv/tls/key-cert.pem', '/srv/tls/cert-private.pem', '/srv/certs/server.pem', '/etc/ssl/private/site.pem', '/etc/ssl/certs/site-key.pem']) expect(judge(p)).toBe('high')
+  })
+
+  it('does not take a certificate name in a private folder, or a look-alike folder, for public', () => {
+    for (const p of ['/etc/ssl/private/cert.pem', '/etc/ssl/private/ca.pem', '/etc/pki/tls/private/chain.pem', '/run/secrets/fullchain.pem', '/home/u/secrets/cert.pem', '/home/u/keys/ca.pem', '/home/u/certifi/id_rsa.pem', '/home/u/certifi/ec2-login.pem', '/home/u/ca-certificates/ec2-login.pem', '/home/u/etc/ssl/certs/ec2-login.pem', '/home/u/.mitmproxy/mitmproxy-ca.pem', '/home/u/tls/id_rsa-cert.pem']) expect(judge(p)).toBe('high')
+  })
+
+  it('keeps certificate authorities that sign logins, and every word that marks a secret', () => {
+    for (const p of ['/etc/ssh/ca.pem', '/home/u/ssh-ca.pem', '/home/u/vault/ca.pem', '/home/u/credentials/cert.pem', '/home/u/tls/id_ed25519-cert.pem', '/home/u/tls/id_ecdsa-cert.pem', '/private/cert.pem', '/private/ca.pem']) expect(judge(p)).toBe('high')
+  })
+
+  it('still knows the public certificates on a Mac, whose /etc sits under /private', () => {
+    for (const p of ['/private/etc/ssl/cert.pem', '/private/etc/ssl/certs/Some_Root.pem']) expect(judge(p)).toBe('medium')
+  })
+
+  it('stays fast on a long hostile path', () => {
+    const started = performance.now()
+    judge(`/${'key'.repeat(85_000)}/cert.pem`)
+    judge(`${'/certifi'.repeat(32_000)}/x.pem:y`)
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
+
+  it('keeps a certificate rated higher by a credential folder or by the user', () => {
+    expect(judge('/home/u/.ssh/ca.pem')).toBe('critical')
+    expect(judge('/srv/tls/cert.pem', { ...DEFAULT_CONFIG, sensitive: { critical: [], high: [{ pattern: '/srv/tls', reason: 'ours' }], medium: [], low: [] } })).toBe('high')
+  })
+
+  it('leaves other file types alone', () => {
+    expect(judge('/etc/ssl/certs/site.key')).toBe('high')
+  })
+})
+
 describe('judgePath: Claude Code session files', () => {
   it('authorizes the files of the session itself, rates other transcripts critical and other artifacts medium', () => {
     const own = { ...ctx(), sessionId: 'abc-123' }

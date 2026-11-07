@@ -32,7 +32,7 @@ describe('formatTouched', () => {
     expect(out).toMatch(/sensitive files touched\s+4\s+~\/\.aws\/credentials, ~\/other\/\.env, ~\/\.zshrc \(\+1\)/)
     expect(out).toMatch(/secrets tools pulled in\s+2\s+Google API key, GitHub token/)
     expect(out).toMatch(/secrets you pasted\s+1\s+password in a URL/)
-    expect(out).toMatch(/sent out right after\s+1\s+curl to api\.example\.com/)
+    expect(out).toMatch(/possible sends right after\s+1\s+curl to api\.example\.com/)
     expect(out).toMatch(/risky scripts\s+1\s+setup\.sh downloads code and runs it/)
   })
 

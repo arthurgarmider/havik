@@ -4,7 +4,7 @@ const REDACTED = '[REDACTED]'
 
 // Tokens that are secrets on their own: the whole match is replaced. The name says what kind it is.
 const WHOLE_TOKENS: ReadonlyArray<readonly [string, RegExp]> = [
-  ['private key block', /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)/g],
+  ['private key block', /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|(?=-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----)|$)/g],
   ['API key', /\b(?:sk|rk)-[A-Za-z0-9_-]{16,300}/g],
   ['Stripe key', /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,300}/g],
   ['GitHub token', /\bgh[pousr]_[A-Za-z0-9]{16,300}/g],
@@ -73,5 +73,17 @@ export const secretMatches = (text: string): Array<{ kind: string; value: string
 
 // Documentation and test fixtures use tokens that say so: EXAMPLE, CANARY, FAKE, a counting or repeated body.
 const PLACEHOLDER = /EXAMPLE|CANARY|FAKE|DUMMY|SAMPLE|PLACEHOLDER|CHANGEME|XXXX|YOUR[_-]?(?:KEY|TOKEN)|0123456789|abcdefghij|(.)\1{7,}/i
-export const isPlaceholder = (value: string): boolean => PLACEHOLDER.test(value)
+// A key block is judged by its base64, never by the text around it. A block cut off from its END marker is judged
+// on its start, because whatever follows it decides nothing.
+const KEY_START_CHARS = 300
+const KEY_RUN = /[A-Za-z0-9+/=]{16,}/g
+// The shortest real key, Ed25519 in PKCS#8, is 64 characters. A marker followed by less is documentation or a test.
+const MIN_KEY_CHARS = 48
+// Case-sensitive and a far longer run: zero bytes encode as runs of A (ssh-keygen's header always holds nine), and a long body spells a short word by chance.
+const KEY_PLACEHOLDER = /EXAMPLE|CANARY|FAKE|DUMMY|SAMPLE|PLACEHOLDER|CHANGEME|XXXX|0123456789|abcdefghij|(.)\1{31,}/
+const isStubKey = (value: string): boolean => {
+  const body = ((value.endsWith('PRIVATE KEY-----') ? value : value.slice(0, KEY_START_CHARS)).match(KEY_RUN) ?? []).join('')
+  return body.length < MIN_KEY_CHARS || KEY_PLACEHOLDER.test(body)
+}
+export const isPlaceholder = (value: string): boolean => (value.startsWith('-----BEGIN ') ? isStubKey(value) : PLACEHOLDER.test(value))
 

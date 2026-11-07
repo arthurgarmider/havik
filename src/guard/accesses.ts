@@ -25,11 +25,26 @@ const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|rb|pl|php|sh|bash|zsh|fish)$/i
 const HEREDOC = /<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/
 const UPLOADER = /(?:^|[\s;&|(])(?:ssh|scp|rsync|sftp|ftp|nc|ncat|netcat)(?=\s)/
 // A GET of a plain page cannot carry much; a query string or a long opaque path segment can.
-const PAYLOAD_SEGMENT = /[A-Za-z0-9+/=_-]{32,}/
+const LONG_RUN = /[A-Za-z0-9+/=_-]{32,}/g
+// Article and document names run long too: words joined by hyphens, not encoded data.
+// shortcut: data split into pieces that mostly read as words passes (the README says so); tighten if a real case appears.
+const WORD = /^(?:[A-Za-z][a-z]{0,23}|[A-Z]{1,24}|\d{1,20}|[A-Za-z0-9]{1,4})$/
+// Most pieces must read as words, so base64's four-letter units and hex or decimal bytes joined by hyphens do not pass.
+const NAMED_WORD = /^[A-Za-z][a-z]{2,23}$/
+const isWords = (run: string): boolean => {
+  const words = run.split(/[-_]+/).filter(Boolean)
+  const named = words.filter(w => NAMED_WORD.test(w)).length
+  return words.length >= 3 && words.every(w => WORD.test(w)) && named * 2 >= words.length
+}
+const hasEncodedRun = (text: string): boolean => (text.match(LONG_RUN) ?? []).some(run => !isWords(run))
+// Past this length a URL can hold anything, whatever its shape.
+const URL_MAX_CHARS = 512
 export const urlCarriesData = (url: string): boolean => {
-  const rest = url.replace(/^[a-z]+:\/\/[^/?#]+/i, '')
-  const [path, query] = rest.split(/[?#]/, 2)
-  return (query !== undefined && query.length > 0) || path.split('/').some(s => PAYLOAD_SEGMENT.test(s))
+  if (url.length > URL_MAX_CHARS) return true
+  const start = /^[a-z]+:\/\/([^/?#]*)/i.exec(url)
+  const authority = start?.[1] ?? ''
+  const [path, ...after] = url.slice(start?.[0].length ?? 0).split(/[?#]/)
+  return authority.includes('@') || hasEncodedRun(authority) || after.join('').length > 0 || path.split('/').some(hasEncodedRun)
 }
 const HOME_FORM = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/
 const CHANNEL_HOSTS: Record<string, string> = { telegram: 'api.telegram.org', slack: 'slack.com', discord: 'discord.com', whatsapp: 'web.whatsapp.com', signal: 'signal.org', matrix: 'matrix.org' }
@@ -195,26 +210,54 @@ const withoutHeredocs = (command: string): string => {
 // `"$HOME"/x` is one path to the shell and two tokens to the tokenizer; glue it back together first.
 const QUOTED_HOME = /["']\$\{?HOME\}?["'](?=\/)/g
 
+// A command's output in a URL can be anything.
+// shortcut: a plain variable counts only when named like a secret or like data, because $ID or $VERSION in a URL is routine; widen this if a real case appears.
+const SHELL_VALUE = /\$\(|`|\$\{?\w*(?:TOKEN|KEY|SECRET|PASS(?:WORD|WD)?|AUTH|CREDS?|CREDENTIALS?|JWT|BEARER|COOKIE|_PAT|_?PW|DATA|PAYLOAD|B64|BASE64|ENCODED)(?:_\w*)?\}?(?!\w)/i
+// The URL pattern stops at a quote or a backtick, but the shell joins whatever is glued on after it.
+const GLUED_ON = /^["']*[^\s;|&]*/
+const SHELL_HOST = 'a host the shell fills in'
+
 const bashAccesses = (raw: string, cwd: string, home: string): Access[] => {
   if (raw.length > MAX_COMMAND) return []
   const command = withoutHeredocs(raw).replace(QUOTED_HOME, '$HOME')
   const sender = bashSender(command)
   // Uploads and shells carry data; a curl or wget carries it only through the URL.
   const carries = uploadsData(command) || UPLOADER.test(command)
-  const urls = new Set([...command.matchAll(URLS)].filter(m => urlCarriesData(m[0])).map(m => hostOf(m[0])))
+  const urlMatches = [...command.matchAll(URLS)]
+  const urls = new Set(urlMatches.filter(m => urlCarriesData(m[0]) || SHELL_VALUE.test(m[0] + (GLUED_ON.exec(command.slice((m.index ?? 0) + m[0].length))?.[0] ?? ''))).map(m => hostOf(m[0])))
+  const shellHost = NETWORK_TOOL.test(command) && urlMatches.some(m => !hostOf(m[0]) && m[0].includes('$') && (urlCarriesData(m[0]) || SHELL_VALUE.test(m[0])))
   const substituted = [...command.matchAll(DOUBLE_QUOTED)].flatMap(q => [...q[1].matchAll(SUBSTITUTION)].map(m => m[1] ?? m[2] ?? ''))
   const fed = XARGS.test(command)
   return [
     ...[command, ...substituted].flatMap(segments).flatMap(segment => segmentAccesses(segment, cwd, home, fed)),
     ...bashHosts(command).map((host): Access => ({ kind: carries || urls.has(host) ? 'send' : 'fetch', host, via: sender })),
+    ...(shellHost ? [{ kind: 'send', host: SHELL_HOST, via: sender } satisfies Access] : []),
   ]
+}
+
+// An MCP tool may post its other arguments to the URL it is given: a string long enough to hold a secret,
+// anything that names a file, or a large input makes every URL in the call a send.
+const MCP_PAYLOAD_CHARS = 16
+const MCP_INPUT_CHARS = 200
+const URL_START = /^(?:https?|ftp):\/\//
+const NAMES_A_FILE = /[/.~]/
+
+// A string that is only a URL is judged as one; text that merely starts with one is data like any other.
+const isBareUrl = (s: string): boolean => URL_START.test(s) && !/\s/.test(s) && Boolean(hostOf(s))
+
+const mcpCarriesData = (input: unknown, strings: readonly string[]): boolean => {
+  const urlChars = strings.filter(isBareUrl).reduce((n, s) => n + s.length, 0)
+  return strings.some(s => (isBareUrl(s) ? urlCarriesData(s) : s.length >= MCP_PAYLOAD_CHARS || NAMES_A_FILE.test(s))) ||
+    (JSON.stringify(input) ?? '').length - urlChars > MCP_INPUT_CHARS || urlChars > 4 * URL_MAX_CHARS
 }
 
 const mcpAccesses = (toolName: string, input: unknown, cwd: string, home: string): Access[] => {
   const out: Access[] = []
-  for (const s of stringsOf(input)) {
-    const url = s.match(/^(?:https?|ftp):\/\//) ? hostOf(s) : undefined
-    if (url) out.push({ kind: 'send', host: url, via: toolName })
+  const strings = stringsOf(input)
+  const carries = mcpCarriesData(input, strings)
+  for (const s of strings) {
+    const url = URL_START.test(s) ? hostOf(s) : undefined
+    if (url) out.push({ kind: carries ? 'send' : 'fetch', host: url, via: toolName })
     else if (s.startsWith('/') || HOME_FORM.test(s)) out.push({ kind: 'read', path: expandPath(s, cwd, home) ?? s, via: toolName })
   }
   return out

@@ -21,7 +21,7 @@ const ROWS: ReadonlyArray<{ readonly label: string; readonly detector: string; r
   { label: 'Password and key files an agent opened', detector: 'sensitive-access', item: (x, home) => tildify(x.path ?? '', home) },
   { label: 'Secrets you pasted into a chat', detector: 'secret-in-prompt', item: x => x.kind ?? '' },
   { label: 'Secrets an agent pulled in', detector: 'secret-in-result', item: x => x.kind ?? '' },
-  { label: 'Data sent out right after', detector: 'data-leaving', item: x => x.label ?? '' },
+  { label: 'Possible sends right after', detector: 'data-leaving', item: x => x.label ?? '' },
   { label: 'Scripts that download and run code', detector: 'script-about-to-run', item: x => (x.reason ?? '').replace(/ \(line \d+\)$/, '') },
 ]
 
@@ -40,7 +40,7 @@ const touchedRows = (input: ReportInput): string => {
     return items.length ? [`<tr><th scope="row">${esc(r.label)}</th><td class="n">${items.length}</td><td>${items.slice(0, 12).map(esc).join('<br>')}${items.length > 12 ? `<br>and ${items.length - 12} more` : ''}</td></tr>`] : []
   })
   if (rows.length) return `<table>${rows.join('')}</table>`
-  return unreadOf(input).length ? '<p>Nothing found in what havik could read; see below for what it could not.</p>' : '<p>Nothing sensitive: no password or key file, no secret and nothing sent out after one.</p>'
+  return unreadOf(input).length ? '<p>Nothing found in what havik could read; see below for what it could not.</p>' : '<p>Nothing sensitive: no password or key file, no secret and no possible send after one.</p>'
 }
 
 const stories = (input: ReportInput): string => {
@@ -55,7 +55,7 @@ const advice = (input: ReportInput): string => {
   const tips = [
     ...(of(f, 'secret-in-prompt').length ? ['Change (rotate) the passwords and keys you pasted into a chat with an agent: they are kept in the agent\'s records on this computer and were sent to the company that runs the AI.'] : []),
     ...(of(f, 'secret-in-result').length || of(f, 'sensitive-access').length ? ['Look at the password and key files listed above. If an agent had no reason to open one, change the secret it holds.'] : []),
-    ...(of(f, 'data-leaving').length ? ['Something was sent out right after a secret was read. Check where it went; if you do not know the address, treat the secret as exposed and change it.'] : []),
+    ...(of(f, 'data-leaving').length ? ['Something may have been sent out right after a secret was read: havik sees the request, not what it carried. Check where it went; if you do not know the address, treat the secret as exposed and change it.'] : []),
     ...reachable.map(a => `${a.def.name} acts on messages it receives from ${a.setup?.channels.join(', ')}. Make sure only you can write to it there.`),
     'To be warned while agents work, run: npx agent-havik guard install --agent all. It records and warns, and never blocks anything.',
   ]
@@ -66,7 +66,7 @@ const WORDS: ReadonlyArray<readonly [string, string]> = [
   ['AI agent', 'a program that uses an AI model to act on your computer: run commands, read and change files, open web pages.'],
   ['Tool server', 'an add-on that gives an agent more abilities, such as reading your email or a company system.'],
   ['Secret', 'a password, key or token that opens an account or a service.'],
-  ['Sent out right after', 'the agent sent data to the internet soon after a secret was read: the pattern of a leak, though not proof of one.'],
+  ['Possible sends right after', 'the agent made a request to the internet soon after a secret was read. havik does not check what the request carried: the pattern of a leak, not proof of one.'],
   ['Self-running agent', 'an agent that starts work on its own schedule or when a message arrives, without you at the keyboard.'],
 ]
 

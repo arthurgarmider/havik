@@ -13,6 +13,8 @@ export type SensitivityLevel = 'critical' | 'high' | 'medium' | 'low'
 
 export type SensitivityMap = Record<SensitivityLevel, readonly SensitivityEntry[]>
 
+export const PEM_REASON = 'SSL/TLS certificates and keys'
+
 export const DEFAULTS: SensitivityMap = {
   critical: [
     { pattern: '~/.ssh/', reason: 'SSH private keys' },
@@ -36,7 +38,7 @@ export const DEFAULTS: SensitivityMap = {
     { pattern: '/etc/passwd', reason: 'System user information' },
     { pattern: '~/.config/', reason: 'Application configs may contain tokens' },
     { pattern: '.env', reason: 'Environment files with secrets' },
-    { pattern: '*.pem', reason: 'SSL/TLS certificates and keys' },
+    { pattern: '*.pem', reason: PEM_REASON },
     { pattern: '*.key', reason: 'Private key files' },
   ],
   medium: [

@@ -5,7 +5,7 @@ import { withoutProcessEnv } from '../core/exfil-patterns'
 import { readTextOrNull } from '../core/fs'
 import { asArray, asRecord } from '../core/json'
 import { isInside } from '../core/paths'
-import { classifyPath, type SensitivityEntry, type SensitivityLevel, type SensitivityMap } from '../core/sensitivity'
+import { classifyPath, PEM_REASON, type SensitivityEntry, type SensitivityLevel, type SensitivityMap } from '../core/sensitivity'
 import { AGENTS } from '../agents/registry'
 import type { AgentDef, AgentPaths } from '../agents/types'
 import { expandPath, tildify } from './accesses'
@@ -152,9 +152,17 @@ const agentVerdict = (tilde: string, agent: string | undefined, sessionId: strin
   if (settings) return { level: 'critical', reason: `${possessive(owner.name)} settings, which can hold tokens`, authorized: false }
   return { level: 'medium', reason: `${owner.name} application data`, authorized: false }
 }
-export interface PathVerdict { readonly level: SensitivityLevel; readonly reason: string; readonly authorized: boolean }
+export interface PathVerdict { readonly level: SensitivityLevel; readonly reason: string; readonly authorized: boolean; readonly byNameOnly?: boolean }
 
 const SECRETS_FILE = /(?:^|\/)\.env(?:\.[\w.-]+)?$|\.(?:pem|key)$/i
+
+// A certificate is public, so reading one touches no secret.
+// shortcut: judged by name and folder without opening the file, so a private key saved as cert.pem reads as medium; check the file's first line if that shows up.
+const CERT_NAME = /(?:^|[/_.-])(?:certs?|certificates?|crt|cacert|ca|rootca|chain|fullchain|ca[-_]?bundle)\.pem$/i
+const CERT_FOLDER = /^(?:\/private)?\/etc\/ssl\/certs\/|\/site-packages\/certifi\/[^/]*$|^\/usr\/(?:local\/)?share\/ca-certificates\//
+// Anywhere in the path: a private folder or a key's name decides, whatever the file is called. A Mac keeps /etc under /private.
+const LOOKS_SECRET = /key|priv|secret|credential|mitmproxy|ssh|vault|id_(?:rsa|dsa|ecdsa|ed25519)/i
+const isPublicCert = (path: string): boolean => (CERT_NAME.test(path) || CERT_FOLDER.test(path)) && !LOOKS_SECRET.test(path.replace(/^\/private(?=\/etc\/)/, ''))
 
 export const judgePath = (path: string, ctx: PolicyContext): PathVerdict => {
   if (ctx.config.allow.includes(path)) return { level: 'low', reason: 'allowed in guard.yaml', authorized: true }
@@ -177,5 +185,7 @@ export const judgePath = (path: string, ctx: PolicyContext): PathVerdict => {
   if (CLAUDE_DIR.test(tilde) && !CLAUDE_CRITICAL.test(tilde)) return { level: 'medium', reason: 'Claude Code application data', authorized: false }
   const { level, reason } = classifyAbsolute(path, ctx.home, ctx.map)
   if (NOT_A_SECRET.test(tilde) && level === 'critical') return { level: 'medium', reason: `${reason} (not itself a secret)`, authorized: false }
+  // Only the default *.pem entry: a credential folder or a line in guard.yaml keeps its own rating.
+  if (reason === PEM_REASON && isPublicCert(path)) return { level: 'medium', reason: 'Looks like a public certificate, judged by its name', authorized: false, byNameOnly: true }
   return { level, reason, authorized: false }
 }

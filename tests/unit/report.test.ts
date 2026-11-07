@@ -51,6 +51,15 @@ describe('renderReport', () => {
   })
 })
 
+describe('renderReport on a send after a secret', () => {
+  it('says the send is possible, because nothing checks what it carried', () => {
+    const page = renderReport({ overview, result: { ...result, findings: [finding({ agent: 'hermes', detector: 'data-leaving', severity: 'high', label: 'curl to evil.example' })] }, now: NOW, home: '/home/u', span: '30 days' })
+    expect(page).toContain('Possible sends right after')
+    expect(page).toContain('may have been sent out')
+    expect(page).not.toMatch(/Data sent out|Something was sent out|<dt>Sent out right after/)
+  })
+})
+
 describe('renderReport when a reader failed', () => {
   it('says what could not be read instead of a clean result', () => {
     const failed = renderReport({ overview: { ...overview, warnings: ['Hermes Agent: the sqlite3 program is not installed, so havik cannot read this database'] }, result: { ...result, findings: [], toolCalls: 0, sessions: 0, days: 0, agents: {}, warnings: ['Hermes Agent: the sqlite3 program is not installed, so havik cannot read this database'] }, now: NOW, home: '/home/u', span: '30 days' })

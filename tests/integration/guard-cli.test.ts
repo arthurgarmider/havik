@@ -115,7 +115,7 @@ describe('havik with no command', () => {
       expect(r.code).toBe(0)
       expect(r.stdout.split('\n')[0]).toBe('havik: the AI agents on this computer')
       expect(r.stdout).toContain('In the last 30d, from their own records:')
-      expect(r.stdout).toMatch(/sent out right after\s+1\s+curl to evil\.example/)
+      expect(r.stdout).toMatch(/possible sends right after\s+1\s+curl to evil\.example/)
       expect(r.stderr).toBe('')
     })
   })

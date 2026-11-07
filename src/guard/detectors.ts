@@ -26,19 +26,23 @@ const RC_FILE = /^~\/\.(?:zshrc|bashrc|bash_profile|profile|zprofile|gitconfig)$
 
 const labelOf = (a: Access, home: string): string => `${a.via} ${a.path ? tildify(a.path, home) : a.host ?? ''}`.trim()
 
-export const sensitiveAccesses = (list: readonly Access[], ctx: DetectContext): GuardFinding[] =>
-  list.flatMap((a): GuardFinding[] => {
+export const sensitiveAccesses = (list: readonly Access[], ctx: DetectContext): GuardFinding[] => {
+  const reachesOut = list.some(a => (a.kind === 'send' || a.kind === 'fetch') && a.host && !isLocalHost(a.host))
+  return list.flatMap((a): GuardFinding[] => {
     if ((a.kind !== 'read' && a.kind !== 'use' && a.kind !== 'write') || !a.path) return []
     const verdict = judgePath(a.path, ctx)
     if (verdict.authorized || !atLeast(verdict.level, 'medium')) return []
     const label = labelOf(a, ctx.home)
+    // A name proves nothing about a file read by a command that also reaches another host; its contents may never reach a tool result to be checked.
+    const level = verdict.byNameOnly && a.kind === 'read' && reachesOut ? 'high' : verdict.level
     // A key ssh uses never reaches the context; it is recorded, not warned about.
-    const severity = a.kind === 'use' || (a.kind === 'read' && RC_FILE.test(tildify(a.path, ctx.home))) ? 'medium' : verdict.level
+    const severity = a.kind === 'use' || (a.kind === 'read' && RC_FILE.test(tildify(a.path, ctx.home))) ? 'medium' : level
     return [{
       detector: 'sensitive-access', severity, key: `sensitive-access:${a.kind}:${a.path}`,
       message: `${label}: ${verdict.reason}, ${a.kind === 'use' ? 'used as a key' : 'outside this project'}`, label, kind: a.kind, path: a.path, evidence: 'observed',
     }]
   })
+}
 
 // A recognised credential in what the tool returned: from now on it is in the transcript and every later request.
 // Test suites print their fixture tokens; a token in a test run's output is noted, not treated as a live secret.

@@ -165,3 +165,79 @@ describe('secretMatches', () => {
     expect(found.map((m: { value: string }) => isPlaceholder(m.value))).toEqual([true, true, true, false])
   })
 })
+
+describe('isPlaceholder: private key blocks', () => {
+  const { isPlaceholder } = require('../../src/core/redact')
+  const BEGIN = ['-----BEGIN', 'PRIVATE KEY-----'].join(' ')
+  const END = ['-----END', 'PRIVATE KEY-----'].join(' ')
+  // Built here so no key-shaped text is in the repository: one 64-character line, the size of the shortest real key.
+  const LINE = 'Qk3xZp7T'.repeat(8)
+
+  it('treats a marker with a few characters or prose after it as a stub', () => {
+    for (const stub of [
+      `${BEGIN}\nMIIE...\n${END}`,
+      `${BEGIN}\nb3Blbg==\n`,
+      `${BEGIN}\\nabc\\n${END}\\n`,
+      `${BEGIN} is the first line of a key file, and the rest of this page explains why it matters.`,
+    ]) expect(isPlaceholder(stub)).toBe(true)
+  })
+
+  it('treats a block with a real line of base64 as a key, however it is wrapped or cut', () => {
+    for (const key of [
+      `${BEGIN}\n${LINE}\n${LINE}\n${END}`,
+      `${BEGIN}\\n${LINE}\\n${END}\\n`,
+      `${BEGIN}${LINE}${END}`,
+      `${BEGIN}\n${LINE}\n`,
+      `${BEGIN}\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABCDEF\n\n${LINE}\n${END}`,
+    ]) expect(isPlaceholder(key)).toBe(false)
+  })
+
+  it('counts the format ssh-keygen writes, whose header always holds a run of zero bytes', () => {
+    const u32 = (n: number): Buffer => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b }
+    const str = (s: string): Buffer => Buffer.concat([u32(s.length), Buffer.from(s)])
+    const body = Buffer.concat([Buffer.from('openssh-key-v1\0'), str('none'), str('none'), u32(0), u32(1), Buffer.from(LINE.repeat(3))]).toString('base64')
+    expect(body).toMatch(/A{9}/)
+    const key = `${['-----BEGIN', 'OPENSSH PRIVATE KEY-----'].join(' ')}\n${body.match(/.{1,70}/g)?.join('\n')}\n${['-----END', 'OPENSSH PRIVATE KEY-----'].join(' ')}\n`
+    expect(isPlaceholder(key)).toBe(false)
+  })
+
+  it('counts a key however it is indented, folded or escaped', () => {
+    const long = LINE.repeat(3)
+    for (const key of [
+      `${BEGIN}\n        ${LINE}\n        ${LINE}\n        ${END}`,
+      `${BEGIN}\n${long.match(/.{1,40}/g)?.join('\n')}\n${END}`,
+      `${BEGIN}\n${long.match(/.{1,32}/g)?.join('\n')}\n${END}`,
+      `${BEGIN}\\n${LINE.slice(0, 40)}\\/${LINE.slice(40)}\\n${END}`,
+    ]) expect(isPlaceholder(key)).toBe(false)
+  })
+
+  it('judges only the start of a cut-off block, so what follows it decides nothing', () => {
+    expect(isPlaceholder(`${BEGIN}\n${LINE}\n[output cut]\nsee example.com\nname        size\nsample rate 44k\n`)).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\nMIIE...\n${'and more prose here '.repeat(20)}${LINE}\n`)).toBe(true)
+  })
+
+  it('is not fooled by a word a long body spells by chance, but takes one a fixture spells on purpose', () => {
+    expect(isPlaceholder(`${BEGIN}\n${LINE.slice(0, 20)}fake${LINE.slice(24)}\n${END}`)).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\n${'FAKEKEY1'.repeat(8)}\n${END}`)).toBe(true)
+    expect(isPlaceholder(`${BEGIN}\n${'A'.repeat(64)}\n${END}`)).toBe(true)
+  })
+
+  it('pins the size of a key body on both sides', () => {
+    const body = 'Qk3xZp7T'.repeat(6)
+    expect(isPlaceholder(`${BEGIN}\n${body}\n${END}`)).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\n${body.slice(1)}\n${END}`)).toBe(true)
+  })
+
+  it('does not add up ordinary words into a body', () => {
+    expect(isPlaceholder(`${BEGIN}\n${'documentation explains certificate configuration requirements carefully '.repeat(3)}${END}`)).toBe(true)
+  })
+
+  it('judges a block with its END marker on all of it', () => {
+    expect(isPlaceholder(`${BEGIN}\n${'# a comment about this key\n'.repeat(15)}${LINE}\n${END}`)).toBe(false)
+  })
+
+  it('still redacts a stub and a cut-off key', () => {
+    expect(redactSecrets(`${BEGIN}\nb3Blbg==\n`)).toBe('[REDACTED]')
+    expect(redactSecrets(`${BEGIN}\n${LINE}`)).toBe('[REDACTED]')
+  })
+})

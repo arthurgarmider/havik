@@ -1,6 +1,6 @@
 import type { Severity } from '../core/types'
 
-// `fetch` is a request whose URL carries no payload: recorded, never a sign of data leaving.
+// `fetch` is a request with nothing found that could carry data: recorded, never a sign of data leaving.
 // `use` is a file a program uses without showing its contents, such as the key handed to ssh.
 export type AccessKind = 'read' | 'use' | 'write' | 'send' | 'fetch' | 'script' | 'inline-code'
 // What one tool call touches. `via` names the tool, and for Bash the program, so messages can say how.
