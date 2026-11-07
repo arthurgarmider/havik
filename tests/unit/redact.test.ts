@@ -241,3 +241,28 @@ describe('isPlaceholder: private key blocks', () => {
     expect(redactSecrets(`${BEGIN}\n${LINE}`)).toBe('[REDACTED]')
   })
 })
+
+describe('PGP private key blocks', () => {
+  const BEGIN = ['-----BEGIN PGP', 'PRIVATE KEY BLOCK-----'].join(' ')
+  const END = ['-----END PGP', 'PRIVATE KEY BLOCK-----'].join(' ')
+  const LINE = 'Qk3xZp7T'.repeat(8)
+  const key = `${BEGIN}\nVersion: GnuPG v2\n\n${LINE}\n${LINE}\n=Ab1c\n${END}\n`
+
+  it('recognises the block and redacts it up to its END marker', () => {
+    expect(secretKinds(key)).toEqual(['private key block'])
+    expect(containsSecret(key)).toBe(true)
+    expect(redactSecrets(`before\n${key}after`)).toBe('before\n[REDACTED]\nafter')
+  })
+
+  it('does not stop at a second block, and redacts one cut off from its END marker', () => {
+    expect(redactSecrets(`${BEGIN}\n${LINE}\n${BEGIN}\n${LINE}`)).toBe('[REDACTED][REDACTED]')
+  })
+
+  it('judges a whole block by its base64, whatever words stand around it', () => {
+    const { isPlaceholder } = require('../../src/core/redact')
+    expect(isPlaceholder(key.trim())).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\nComment: example\n\n${LINE}\n${END}`)).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\n${'Comment: words in a header line\n'.repeat(30)}\n${LINE}\n${END}`)).toBe(false)
+    expect(isPlaceholder(`${BEGIN}\n...\n${END}`)).toBe(true)
+  })
+})

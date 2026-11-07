@@ -8,7 +8,7 @@ import type { Access, Armed, GuardFinding } from './types'
 
 const MAX_RESPONSE_BYTES = 256_000
 const MAX_RESPONSE_STRINGS = 5_000
-const RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2, critical: 3 }
+export const RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2, critical: 3 }
 // A sensitive read arms data-leaving for this long; a send an hour later is not the same story.
 const ARMED_WINDOW_MS = 20 * 60_000
 // Shapes that ordinary output shows all day (local database URLs, example headers); a token with a vendor prefix is not one of them.

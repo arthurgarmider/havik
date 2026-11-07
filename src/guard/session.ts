@@ -1,3 +1,4 @@
+import { asArray, asRecord } from '../core/json'
 import { randomBytes } from 'node:crypto'
 import { appendFile, mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -44,33 +45,37 @@ const ARMS = (line: AuditLine): boolean =>
 
 export const emptyMemory = (): Memory => ({ started: false, roots: [], remoteMcp: {}, armed: [], alerted: new Set(), pasted: new Set() })
 
-// What one audit line adds to the session memory. Access lines add nothing.
-export const applyLine = (memory: Memory, line: AuditLine): Memory => {
-  if (line.event === 'session') {
-    return { ...memory, started: true, roots: [...memory.roots, ...(line.roots ?? [])], remoteMcp: { ...memory.remoteMcp, ...(line.remote_mcp ?? {}) } }
+// What audit lines add to the session memory, in one pass: one line at a time would copy the sets and the list each time, and a long audit would outrun the hook's timeout. Access lines add nothing.
+const withLines = (memory: Memory, lines: readonly AuditLine[]): Memory => {
+  const sessions = lines.filter(l => l.event === 'session')
+  const findings = lines.filter(l => l.event === 'finding')
+  return {
+    ...memory,
+    started: memory.started || sessions.length > 0,
+    roots: [...memory.roots, ...sessions.flatMap(l => asArray(l.roots) as string[])],
+    remoteMcp: { ...memory.remoteMcp, ...Object.fromEntries(sessions.flatMap(l => Object.entries(asRecord(l.remote_mcp) as Record<string, string>))) },
+    armed: [...memory.armed, ...findings.filter(ARMS).map(l => ({ ts: l.ts, label: l.label ?? l.path ?? 'a sensitive read', severity: l.severity ?? 'high', tool_use_id: l.tool_use_id }))],
+    alerted: new Set([...memory.alerted, ...findings.flatMap(l => (l.alerted && l.key ? [l.key] : []))]),
+    pasted: new Set([...memory.pasted, ...findings.flatMap(l => (l.detector === 'secret-in-prompt' ? asArray(l.fingerprints) as string[] : []))]),
   }
-  if (line.event !== 'finding') return memory
-  const alerted = line.alerted && line.key ? new Set([...memory.alerted, line.key]) : memory.alerted
-  const armed = ARMS(line)
-    ? [...memory.armed, { ts: line.ts, label: line.label ?? line.path ?? 'a sensitive read', severity: line.severity ?? 'high', tool_use_id: line.tool_use_id }]
-    : memory.armed
-  const pasted = line.detector === 'secret-in-prompt' && line.fingerprints ? new Set([...memory.pasted, ...line.fingerprints]) : memory.pasted
-  return { ...memory, alerted, armed, pasted }
 }
+
+export const applyLine = (memory: Memory, line: AuditLine): Memory => (line.event === 'session' || line.event === 'finding' ? withLines(memory, [line]) : memory)
 
 export const readMemory = async (sessionId: string): Promise<Memory> => {
   const text = (await readTextOrNull(sessionFile(sessionId))) ?? ''
-  let memory = emptyMemory()
-  for (const raw of text.split('\n')) {
+  const lines = text.split('\n').flatMap((raw): AuditLine[] => {
     // Access lines are most of the file and never matter here, so they are skipped before parsing.
-    if (!raw || raw.includes('"event":"access"')) continue
+    if (!raw || raw.includes('"event":"access"')) return []
     try {
-      memory = applyLine(memory, JSON.parse(raw))
+      const line: unknown = JSON.parse(raw)
+      return line && typeof line === 'object' ? [line as AuditLine] : []
     } catch {
       // a torn or foreign line teaches nothing
+      return []
     }
-  }
-  return memory
+  })
+  return withLines(emptyMemory(), lines)
 }
 
 // Where the guard keeps its memory and audit: files for the hook, memory for a replay of past sessions.

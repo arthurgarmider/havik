@@ -4,7 +4,7 @@ const REDACTED = '[REDACTED]'
 
 // Tokens that are secrets on their own: the whole match is replaced. The name says what kind it is.
 const WHOLE_TOKENS: ReadonlyArray<readonly [string, RegExp]> = [
-  ['private key block', /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|(?=-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----)|$)/g],
+  ['private key block', /-----BEGIN [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----|(?=-----BEGIN [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----)|$)/g],
   ['API key', /\b(?:sk|rk)-[A-Za-z0-9_-]{16,300}/g],
   ['Stripe key', /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,300}/g],
   ['GitHub token', /\bgh[pousr]_[A-Za-z0-9]{16,300}/g],
@@ -82,7 +82,7 @@ const MIN_KEY_CHARS = 48
 // Case-sensitive and a far longer run: zero bytes encode as runs of A (ssh-keygen's header always holds nine), and a long body spells a short word by chance.
 const KEY_PLACEHOLDER = /EXAMPLE|CANARY|FAKE|DUMMY|SAMPLE|PLACEHOLDER|CHANGEME|XXXX|0123456789|abcdefghij|(.)\1{31,}/
 const isStubKey = (value: string): boolean => {
-  const body = ((value.endsWith('PRIVATE KEY-----') ? value : value.slice(0, KEY_START_CHARS)).match(KEY_RUN) ?? []).join('')
+  const body = ((/PRIVATE KEY(?: BLOCK)?-----$/.test(value) ? value : value.slice(0, KEY_START_CHARS)).match(KEY_RUN) ?? []).join('')
   return body.length < MIN_KEY_CHARS || KEY_PLACEHOLDER.test(body)
 }
 export const isPlaceholder = (value: string): boolean => (value.startsWith('-----BEGIN ') ? isStubKey(value) : PLACEHOLDER.test(value))

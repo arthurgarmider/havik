@@ -5,7 +5,7 @@ import { readTextHead } from '../core/fs'
 import { asRecord } from '../core/json'
 import type { SensitivityMap } from '../core/sensitivity'
 import { accesses, tildify } from './accesses'
-import { agentNoticedSecret, atLeast, dataLeaving, fingerprint, isTestRun, mcpServerSends, secretsInPrompt, secretsInResult, sensitiveAccesses, type DetectContext } from './detectors'
+import { RANK, agentNoticedSecret, atLeast, dataLeaving, fingerprint, isTestRun, mcpServerSends, secretsInPrompt, secretsInResult, sensitiveAccesses, type DetectContext } from './detectors'
 import { accessLine, baseLine, clean, findingLine, systemMessage } from './format'
 import { scanScript } from './jit'
 import { authorizedRoots, judgePath, type GuardConfig } from './policy'
@@ -15,6 +15,14 @@ import type { Access, AuditLine, GuardFinding, HookEvent, Memory } from './types
 const PRE_BUDGET_MS = 250
 const SCRIPT_BUDGET_MS = 2_000
 const POST_BUDGET_MS = 500
+// Each audit line costs the hook time and disk, and the session memory is rebuilt from them on every event, so one call must not write them without end. Past these the worst are kept and the rest counted.
+const MAX_FINDING_LINES = 1_000
+const MAX_ACCESS_LINES = 1_000
+const findingRank = (f: GuardFinding): number => (f.detector === 'data-leaving' ? 0 : 4 - RANK[f.severity])
+const accessRank = (a: Access): number => (a.kind === 'send' ? 0 : a.kind === 'inline-code' || a.kind === 'script' ? 1 : a.host ? 2 : 3)
+// Everything in its own order when it fits; otherwise the best `max` by rank.
+const capped = <T>(items: readonly T[], rank: (item: T) => number, max: number): readonly T[] =>
+  items.length > max ? [...items].sort((a, b) => rank(a) - rank(b)).slice(0, max) : items
 // Tools whose result brings new content into the context; an Edit's echo of a file the model already read does not.
 const CONTENT_TOOLS = new Set(['Read', 'Bash', 'Grep', 'WebFetch', 'WebSearch', 'Agent', 'Task'])
 
@@ -67,7 +75,8 @@ export const startSession = async (event: HookEvent, o: EngineOptions): Promise<
 const record = async (event: HookEvent, findings: readonly GuardFinding[], seen: readonly Access[], memory: Memory, o: EngineOptions): Promise<string> => {
   const alerted = new Set(memory.alerted)
   const alerts: GuardFinding[] = []
-  for (const f of findings) {
+  const shownFindings = capped(findings, findingRank, MAX_FINDING_LINES)
+  for (const f of shownFindings) {
     const alert = atLeast(f.severity, o.config.alertLevel) && !alerted.has(f.key)
     if (alert) {
       alerted.add(f.key)
@@ -76,9 +85,12 @@ const record = async (event: HookEvent, findings: readonly GuardFinding[], seen:
     await write(o, findingLine(event, f, alert, o.ms(), o.now()))
   }
   const reported = new Set(findings.flatMap(f => [f.path, f.host, f.script]))
-  for (const a of seen) {
-    if (a.kind === 'inline-code' || !reported.has(a.path ?? a.host)) await write(o, accessLine(event, a, o.ms(), o.now()))
-  }
+  const lines = seen.filter(a => a.kind === 'inline-code' || !reported.has(a.path ?? a.host))
+  const shownLines = capped(lines, accessRank, MAX_ACCESS_LINES)
+  for (const a of shownLines) await write(o, accessLine(event, a, o.ms(), o.now()))
+  const overBudget = (reason: string) => write(o, { ...baseLine(event, o.ms(), o.now()), event: 'budget-exceeded', reason })
+  if (shownFindings.length < findings.length) await overBudget(`${findings.length - shownFindings.length} findings not recorded`)
+  if (shownLines.length < lines.length) await overBudget(`${lines.length - shownLines.length} accesses not recorded`)
   return systemMessage(alerts)
 }
 

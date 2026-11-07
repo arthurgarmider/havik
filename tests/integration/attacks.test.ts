@@ -102,3 +102,15 @@ describe('benign controls stay quiet', () => {
     expect(r.findings.filter((f) => f.severity === 'critical').map((f) => f.ruleId)).toEqual([])
   })
 })
+
+describe('downloads are not uploads', () => {
+  it('quoted-pipeline: a flag after a pipe in a quoted command is no credential-exfiltration', async () => {
+    const r = await scan(join(BENIGN, 'quoted-pipeline'))
+    expect(ruleIds(r.findings)).not.toContain('credential-exfiltration')
+  })
+
+  it('downloads: a read setting beside curl -f, curl -D and wget -t is no credential-exfiltration', async () => {
+    const r = await scan(join(BENIGN, 'downloads'))
+    expect(ruleIds(r.findings)).not.toContain('credential-exfiltration')
+  })
+})

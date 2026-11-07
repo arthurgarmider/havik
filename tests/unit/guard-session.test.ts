@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, readFile, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, stat, utimes, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendLine, applyLine, auditDir, emptyMemory, pruneAudit, readMemory, sessionFile } from '../../src/guard/session'
@@ -123,5 +123,26 @@ describe('applyLine: pasted secrets', () => {
     const line: AuditLine = { ts: '2026-10-16T10:00:00.000Z', session_id: 's', event: 'finding', detector: 'secret-in-prompt', severity: 'high', fingerprints: ['ab12', 'cd34'], ms: 0 }
     expect([...applyLine(emptyMemory(), line).pasted].sort()).toEqual(['ab12', 'cd34'])
     expect(emptyMemory().pasted.size).toBe(0)
+  })
+})
+
+describe('readMemory: a long audit', () => {
+  it('reads tens of thousands of findings in far less than the hook timeout', async () => {
+    await appendLine(line({ event: 'session', roots: ['/r'] }))
+    const finding = (i: number) => JSON.stringify(line({ event: 'finding', detector: 'sensitive-access', severity: 'critical', kind: 'read', key: `k${i}`, alerted: true, label: `l${i}` }))
+    await appendFile(sessionFile('s1'), `${Array.from({ length: 30_000 }, (_, i) => finding(i)).join('\n')}\n`)
+    const start = performance.now()
+    const m = await readMemory('s1')
+    expect(performance.now() - start).toBeLessThan(3000)
+    expect([m.started, m.roots, m.alerted.size, m.armed.length]).toEqual([true, ['/r'], 30_000, 30_000])
+  })
+})
+
+describe('readMemory: foreign lines', () => {
+  it('ignores values of the wrong shape, so later events still run', async () => {
+    await appendLine(line({ path: '/a' }))
+    await appendFile(sessionFile('s1'), '{"event":"session","roots":5,"remote_mcp":7}\n{"event":"finding","fingerprints":3,"detector":"secret-in-prompt"}\nnull\n7\n')
+    const m = await readMemory('s1')
+    expect([m.started, m.roots, [...m.pasted]]).toEqual([true, [], []])
   })
 })
