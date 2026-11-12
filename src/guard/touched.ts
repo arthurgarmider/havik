@@ -34,7 +34,8 @@ const conversations = (r: ReplayResult): number => Object.values(r.agents).reduc
 export const formatTouched = (r: ReplayResult, span: string, home: string, dir = `${home}/.claude/projects`, names?: (id: string) => string): string => {
   // A reader that failed is said, never hidden behind "no records" or "nothing sensitive".
   const unread = [...new Set(r.warnings)].map(w => fit('Could not read: ', w))
-  if (r.toolCalls === 0) {
+  // A conversation with no tool call still counts: it can hold a pasted secret.
+  if (r.toolCalls === 0 && r.findings.length === 0 && conversations(r) === 0) {
     if (names && unread.length > 0) return [`Nothing read in the last ${span}.`, ...unread].join('\n')
     return names ? `No agent records in the last ${span}.` : `No Claude Code sessions in the last ${span} under ${tildify(dir, home)}.`
   }

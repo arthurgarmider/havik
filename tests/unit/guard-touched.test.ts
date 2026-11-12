@@ -103,3 +103,24 @@ describe('formatTouched when a reader failed', () => {
     expect(out).not.toBe('No agent records in the last 30d.')
   })
 })
+
+describe('formatTouched when a conversation ran no tool', () => {
+  const quiet = (over: Partial<ReplayResult>): ReplayResult => ({ sessions: 1, toolCalls: 0, days: 0, summaries: [], findings: [], agents: { 'claude-code': { sessions: 1, toolCalls: 0, unknownActions: 0 } }, warnings: [], ...over })
+  const names = (id: string) => id
+
+  it('shows a pasted secret instead of saying there are no records', () => {
+    const pasted = quiet({ findings: [line({ detector: 'secret-in-prompt', kind: 'GitHub token' })] })
+    for (const out of [formatTouched(pasted, '30d', HOME), formatTouched(pasted, '30d', HOME, undefined, names)]) {
+      expect(out).toMatch(/secrets you pasted\s+1\s+GitHub token/)
+      expect(out).not.toContain('No agent records')
+      expect(out).not.toContain('No Claude Code sessions')
+    }
+  })
+
+  it('does not say nothing was read when conversations were read and one reader failed', () => {
+    const out = formatTouched(quiet({ warnings: ['Cursor: the sqlite3 program is not installed'] }), '30d', HOME, undefined, names)
+    expect(out).toContain('1 conversations')
+    expect(out).toContain('Could not read: Cursor: the sqlite3 program is not installed')
+    expect(out).not.toContain('Nothing read')
+  })
+})
