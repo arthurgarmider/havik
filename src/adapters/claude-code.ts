@@ -29,8 +29,13 @@ const collectHooks = (hooksByEvent: unknown, source: string): HookInfo[] =>
         source, async: h?.async ?? false, timeout: h?.timeout ?? 30,
       }))))
 
+const isClaudeDir = (path: string): boolean => basename(resolve(path)) === '.claude'
+
 // A scan path that is itself named .claude is the Claude folder: `havik scan ~/.claude`.
-const claudeDirOf = (basePath: string): string => (basename(resolve(basePath)) === '.claude' ? basePath : join(basePath, '.claude'))
+const claudeDirOf = (basePath: string): string => (isClaudeDir(basePath) ? basePath : join(basePath, '.claude'))
+
+// Such a folder can hold a project-level .claude of its own, left when Claude Code was run inside it.
+export const claudeBasesOf = (scanPath: string): string[] => (isClaudeDir(scanPath) ? [scanPath, join(scanPath, '.claude')] : [scanPath])
 
 export const detectClaudeCode = trace('detectClaudeCode', async (basePath: string): Promise<boolean> => {
   for (const file of SETTINGS_FILES) {

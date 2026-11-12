@@ -49,6 +49,19 @@ describe('a scan never looks clean when it could not look', () => {
     })
   })
 
+  it('also reads a project-level .claude inside a scanned .claude folder', async () => {
+    const nested = { '.claude/.claude/settings.local.json': JSON.stringify({ hooks: HOOK }) }
+    for (const tree of [nested, { ...nested, '.claude/settings.json': JSON.stringify({ hooks: HOOK }) }]) {
+      await withTree(tree, async (dir) => {
+        for (const r of [await scan(join(dir, '.claude')), await scan(join(dir, '.claude'), '-r')]) {
+          const files = r.findings.filter((f) => f.ruleId === 'dangerous-hook-command').map((f) => f.proof?.file)
+          expect(files.sort()).toEqual(Object.keys(tree).map((rel) => join(dir, rel)).sort())
+          expect(r.code).toBe(2)
+        }
+      })
+    }
+  })
+
   it('keeps the rest of the Claude Code layer when one plugin entry is malformed, and says so', async () => {
     await withTree({
       '.claude/settings.json': JSON.stringify({ hooks: HOOK }),

@@ -7,7 +7,7 @@ import { calculateScore } from '../core/scoring'
 import { detectOpenClaw, discoverOpenClaw, analyzeOpenClaw } from '../adapters/openclaw'
 import { detectMcp, discoverMcp, analyzeMcp, mergeMcpServers } from '../adapters/mcp'
 import { detectGeneric, analyzeGeneric } from '../adapters/generic'
-import { detectClaudeCode, discoverClaudeCode } from '../adapters/claude-code'
+import { claudeBasesOf, detectClaudeCode, discoverClaudeCode } from '../adapters/claude-code'
 import { analyzeClaudeCode } from '../adapters/claude-code-analyzer'
 import { formatTerminal } from '../output/terminal'
 import { formatJson } from '../output/json'
@@ -46,8 +46,8 @@ async function scanSinglePath(scanPath: string, rules: readonly import('../core/
   const skills = new Map<string, SkillTarget>()
   const claimed: SkillTarget[] = [] // OpenClaw skills: analysed inside analyzeOpenClaw, with their declared permissions
 
-  if (useClaudeCode && await detectClaudeCode(scanPath)) {
-    const found = valueOrWarn(await discoverClaudeCode(scanPath), `Claude Code discovery in ${scanPath}`, warnings)
+  for (const base of claudeBasesOf(scanPath)) if (useClaudeCode && await detectClaudeCode(base)) {
+    const found = valueOrWarn(await discoverClaudeCode(base), `Claude Code discovery in ${base}`, warnings)
     if (found) {
       warnings.push(...found.warnings)
       const ccSkills = found.skills.map(s => ({
