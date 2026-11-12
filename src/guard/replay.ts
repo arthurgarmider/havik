@@ -66,7 +66,11 @@ export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
     }
   }
   const bySession = new Map<string, AuditLine[]>()
-  for (const line of store.lines) bySession.set(line.session_id, [...(bySession.get(line.session_id) ?? []), line])
+  for (const line of store.lines) {
+    const lines = bySession.get(line.session_id) ?? []
+    if (lines.length === 0) bySession.set(line.session_id, lines)
+    lines.push(line)
+  }
   const summaries = [...bySession].map(([session, lines]) => summarise(session, lines)).sort((a, b) => a.first.localeCompare(b.first))
   // Every secret the user pasted is listed, whatever its severity; for the rest, high and critical.
   const findings = store.lines.filter(l => l.event === 'finding' && (l.detector === 'secret-in-prompt' || l.severity === 'critical' || l.severity === 'high'))

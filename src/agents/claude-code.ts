@@ -92,7 +92,8 @@ async function* history(o: HistoryOptions): AsyncIterable<HistoryItem> {
   }
   for (const [id, files] of groups) {
     const events: Replayed[] = []
-    for (const file of files) events.push(...eventsOf((await readTextOrNull(file)) ?? ''))
+    // One push per event: Node caps the arguments of a single call, and a long transcript has more events than that.
+    for (const file of files) for (const event of eventsOf((await readTextOrNull(file)) ?? '')) events.push(event)
     yield { id, startedBy: 'you', events: events.filter(isUnderstood).sort((a, b) => a.at - b.at), unknown: unknownOf(events) }
   }
 }
