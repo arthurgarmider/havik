@@ -1,4 +1,4 @@
-import { isAbsolute, join } from 'path'
+import { basename, isAbsolute, join, resolve } from 'path'
 import { trace } from '../core/trace'
 import { fileExists, findFiles, readText, readTextOrNull } from '../core/fs'
 import { asArray, asRecord, toList } from '../core/json'
@@ -29,16 +29,19 @@ const collectHooks = (hooksByEvent: unknown, source: string): HookInfo[] =>
         source, async: h?.async ?? false, timeout: h?.timeout ?? 30,
       }))))
 
+// A scan path that is itself named .claude is the Claude folder: `havik scan ~/.claude`.
+const claudeDirOf = (basePath: string): string => (basename(resolve(basePath)) === '.claude' ? basePath : join(basePath, '.claude'))
+
 export const detectClaudeCode = trace('detectClaudeCode', async (basePath: string): Promise<boolean> => {
   for (const file of SETTINGS_FILES) {
-    if (await fileExists(join(basePath, '.claude', file))) return true
+    if (await fileExists(join(claudeDirOf(basePath), file))) return true
   }
   return false
 })
 
 export const discoverClaudeCode = trace('discoverClaudeCode', async (basePath: string): Promise<Result<ClaudeCodeInventory>> => {
   try {
-    const claudeDir = join(basePath, '.claude')
+    const claudeDir = claudeDirOf(basePath)
     const warnings: string[] = []
 
     // Frontmatter that is not valid YAML still leaves a skill or agent to analyse; only its metadata is lost.

@@ -1,4 +1,4 @@
-import { join } from 'path'
+import { join, relative } from 'path'
 import { trace } from '../core/trace'
 import { findFiles, readText } from '../core/fs'
 import type { Finding, Result } from '../core/types'
@@ -12,7 +12,7 @@ const nextId = (prefix: string) => `${prefix}-${String(++findingCounter).padStar
 
 export const detectGeneric = (): boolean => true
 
-async function checkEnvFiles(basePath: string): Promise<Finding[]> {
+async function checkEnvFiles(basePath: string, prefix: string): Promise<Finding[]> {
   const findings: Finding[] = []
 
   for (const rel of await findFiles('**/{.env,.env.*}', basePath, { dot: true })) {
@@ -27,7 +27,7 @@ async function checkEnvFiles(basePath: string): Promise<Finding[]> {
           severity: 'high',
           confidence: 'high',
           owasp: 'ASI03',
-          description: `Secret detected in ${rel}`,
+          description: `Secret detected in ${join(prefix, rel)}`,
           proof: {
             file: filePath,
             line: i + 1,
@@ -43,7 +43,7 @@ async function checkEnvFiles(basePath: string): Promise<Finding[]> {
   return findings
 }
 
-async function checkBindAddresses(basePath: string): Promise<Finding[]> {
+async function checkBindAddresses(basePath: string, prefix: string): Promise<Finding[]> {
   const findings: Finding[] = []
 
   for (const rel of await findFiles('**/*.{json,yaml,yml,toml,conf,cfg}', basePath, { dot: true })) {
@@ -58,7 +58,7 @@ async function checkBindAddresses(basePath: string): Promise<Finding[]> {
           severity: 'medium',
           confidence: 'high',
           owasp: 'ASI05',
-          description: `Config binds to all interfaces in ${rel}`,
+          description: `Config binds to all interfaces in ${join(prefix, rel)}`,
           proof: {
             file: filePath,
             line: i + 1,
@@ -74,7 +74,7 @@ async function checkBindAddresses(basePath: string): Promise<Finding[]> {
   return findings
 }
 
-async function checkCredentialFiles(basePath: string): Promise<Finding[]> {
+async function checkCredentialFiles(basePath: string, prefix: string): Promise<Finding[]> {
   const findings: Finding[] = []
 
   for (const pattern of CREDENTIAL_GLOB_PATTERNS) {
@@ -87,11 +87,11 @@ async function checkCredentialFiles(basePath: string): Promise<Finding[]> {
         severity: 'high',
         confidence: 'medium',
         owasp: 'ASI03',
-        description: `Credential file found at non-standard location: ${rel}`,
+        description: `Credential file found at non-standard location: ${join(prefix, rel)}`,
         proof: {
           file: filePath,
           line: 1,
-          snippet: rel,
+          snippet: join(prefix, rel),
           safeToDisplay: true,
         },
       })
@@ -103,13 +103,15 @@ async function checkCredentialFiles(basePath: string): Promise<Finding[]> {
 
 export const analyzeGeneric = trace(
   'analyzeGeneric',
-  async (basePath: string): Promise<Result<readonly Finding[]>> => {
+  async (basePath: string, root: string = basePath): Promise<Result<readonly Finding[]>> => {
     try {
       findingCounter = 0
+      // Paths are shown from the scan root, so -r reports a file seen from two installs as one finding.
+      const prefix = relative(root, basePath)
       const [envFindings, bindFindings, credFindings] = await Promise.all([
-        checkEnvFiles(basePath),
-        checkBindAddresses(basePath),
-        checkCredentialFiles(basePath),
+        checkEnvFiles(basePath, prefix),
+        checkBindAddresses(basePath, prefix),
+        checkCredentialFiles(basePath, prefix),
       ])
       return { ok: true, value: [...envFindings, ...bindFindings, ...credFindings] }
     } catch (error) {

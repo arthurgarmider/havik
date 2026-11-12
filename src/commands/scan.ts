@@ -33,6 +33,7 @@ const valueOrWarn = <T>(result: Result<T>, what: string, warnings: string[]): T 
 
 async function scanSinglePath(scanPath: string, rules: readonly import('../core/types').Rule[], opts: {
   framework?: string
+  root?: string
 }): Promise<{ findings: Finding[], inventory: AgentInventory, warnings: string[], targets: SkillTarget[] }> {
   const allFindings: Finding[] = []
   const warnings: string[] = []
@@ -103,7 +104,7 @@ async function scanSinglePath(scanPath: string, rules: readonly import('../core/
   }
 
   if (!opts.framework || opts.framework === 'generic') {
-    allFindings.push(...valueOrWarn(await analyzeGeneric(scanPath), 'Generic analysis', warnings) ?? [])
+    allFindings.push(...valueOrWarn(await analyzeGeneric(scanPath, opts.root), 'Generic analysis', warnings) ?? [])
   }
 
   return { findings: allFindings, inventory, warnings, targets: [...claimed, ...skills.values()] }
@@ -146,8 +147,9 @@ async function runScan(scanPath: string, opts: {
       }
       process.stderr.write('\n')
     }
-    for (const inst of installs) {
-      const { findings, inventory, warnings: found, targets: analysed } = await scanSinglePath(inst.path, rules, opts)
+    // The path itself is always scanned, so -r never covers less than a plain scan.
+    for (const path of new Set([scanPath, ...installs.map(inst => inst.path)])) {
+      const { findings, inventory, warnings: found, targets: analysed } = await scanSinglePath(path, rules, { framework: opts.framework, root: scanPath })
       allFindings.push(...findings)
       warnings.push(...found)
       for (const t of analysed) targets.set(t.dir, t)
