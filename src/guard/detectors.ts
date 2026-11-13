@@ -77,19 +77,17 @@ const AGENT_NOTICED = [
   new RegExp(String.raw`\b${SECRET_WORD}\s+(?:is|are|was|were)\s+now\s+(?:exposed|visible|in (?:the|this) (?:chat|conversation|transcript))`, 'i'),
 ]
 
-// A reply that talks about a pasted secret may quote it, in a format redactSecrets does not know:
-// any long run of letters and digits mixed is masked too.
+// The phrases are matched on the reply with secrets and long mixed runs of letters and digits masked.
 const OPAQUE = /[A-Za-z0-9_+/=-]{16,}/g
 const maskOpaque = (text: string): string => text.replace(OPAQUE, t => (/\d/.test(t) && /[A-Za-z]/.test(t) ? '[REDACTED]' : t))
 
 export const agentNoticedSecret = (reply: string): GuardFinding[] => {
   const flat = maskOpaque(redactSecrets(reply.slice(0, MAX_RESPONSE_BYTES).replace(/\s+/g, ' ')))
-  const hit = AGENT_NOTICED.map(re => re.exec(flat)).find(m => m !== null)
-  if (!hit) return []
-  const quote = flat.slice(Math.max(0, hit.index - 30), hit.index + 90).trim()
+  if (!AGENT_NOTICED.some(re => re.test(flat))) return []
+  // The reply is not quoted: masking cannot recognise a short password the agent repeats.
   return [{
     detector: 'secret-in-prompt', severity: 'high', key: 'secret-in-prompt:agent-noticed',
-    message: `the agent says you shared a secret ("${quote}"): it is in the session transcript`,
+    message: 'the agent says you shared a secret: it is in the session transcript',
     label: 'a secret the agent noticed in your message', kind: 'noticed by the agent', evidence: 'observed',
   }]
 }

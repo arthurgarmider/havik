@@ -268,17 +268,24 @@ describe('agentNoticedSecret', () => {
     ]) expect([t, noticed(t)]).toEqual([t, false])
   })
 
-  it('reports once per session, high, quoting the sentence without any value in it', () => {
+  it('reports once per session, high, without any value in it', () => {
     const [f] = agentNoticedSecret('Rotate that key: ghp_9fKq2LmNpR7sTvWx1yZaBc4dEfGh5JkL is in the chat.')
     expect(f).toMatchObject({ detector: 'secret-in-prompt', severity: 'high', key: 'secret-in-prompt:agent-noticed', kind: 'noticed by the agent' })
     expect(f.message).toContain('the agent says you shared a secret')
     expect(JSON.stringify(f)).not.toContain('ghp_9fKq2')
   })
 
-  it('masks a value in a format havik does not know when the reply quotes it', () => {
+  it('keeps nothing of the reply, so a short password the agent repeats is not stored', () => {
+    const password = ['tulip', '42'].join('')
+    const [f] = agentNoticedSecret(`You pasted the password ${password} into this chat.`)
+    expect(f.message).toBe('the agent says you shared a secret: it is in the session transcript')
+    expect(JSON.stringify(f)).not.toContain(password)
+  })
+
+  it('stores no value in a format havik does not know when the reply quotes it, and none of the sentence', () => {
     const [f] = agentNoticedSecret('## Rotate that key `Q7wErT9yUi0pAs1dF2gH3jK4lZ5xC6vB` is now in this chat transcript.')
     expect(JSON.stringify(f)).not.toContain('Q7wErT9y')
-    expect(f.message).toContain('Rotate that key')
+    expect(f.message).not.toContain('Rotate that key')
   })
 })
 
