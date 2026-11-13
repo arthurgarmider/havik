@@ -198,7 +198,8 @@ describe('replay: records that were not read are said', () => {
       const undated = { type: 'assistant', sessionId: 's1', cwd: join(home, 'proj'), message: { content: [{ type: 'tool_use', id: 'u1', name: 'Bash', input: { command: 'ls' } }] } }
       await writeFile(join(projects, 's1.jsonl'), `${benign('s1', join(home, 'proj'))}\n${JSON.stringify(undated)}`)
       const r = await ownTmp(dir, () => replay(home, 30 * 86_400_000))
-      expect(r.warnings).toEqual(['Claude Code: 1 entry with no time was not checked'])
+      expect(r.warnings).toEqual(['Claude Code: 1 entry with no time'])
+      expect(formatReplay(r, join(home, '.claude/projects'), '30d', home)).toContain('Could not read: Claude Code: 1 entry with no time\n')
       expect(r.toolCalls).toBe(1)
     })
   })

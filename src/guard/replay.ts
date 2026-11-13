@@ -70,7 +70,7 @@ export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
       }
       if (seen) counts.sessions++
     }
-    if (undated > 0) warnings.push(`${def.name}: ${undated.toLocaleString('en-US')} ${undated === 1 ? 'entry with no time was' : 'entries with no time were'} not checked`)
+    if (undated > 0) warnings.push(`${def.name}: ${undated.toLocaleString('en-US')} ${undated === 1 ? 'entry' : 'entries'} with no time`)
   }
   const bySession = new Map<string, AuditLine[]>()
   for (const line of store.lines) {
