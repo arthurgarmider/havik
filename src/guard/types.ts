@@ -29,6 +29,8 @@ export interface GuardFinding {
 export interface HookEvent {
   readonly session_id: string
   readonly cwd: string
+  // The folder a tool call names for itself: relative paths resolve against it, and it never counts as part of the project.
+  readonly tool_cwd?: string
   readonly hook_event_name: string
   readonly permission_mode?: string
   readonly tool_name?: string

@@ -203,6 +203,15 @@ describe('guard: other agents\' hooks', () => {
     })
   })
 
+  it('does not trust a folder that a Gemini CLI shell call names as its own', async () => {
+    await withSandbox(async (s) => {
+      const call = (session_id: string, command: string) => runHook({ session_id, cwd: s.project, hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input: { command, dir_path: join(s.home, '.aws') }, timestamp: 't' }, s.env, ['--agent', 'gemini-cli'])
+      expect((await call('g1', 'cat ~/.aws/credentials')).message).toContain('~/.aws/credentials')
+      // A relative path is still resolved against the folder the call names.
+      expect((await call('g2', 'cat ./credentials')).message).toContain('~/.aws/credentials')
+    })
+  })
+
   it('stays silent for a payload in another agent\'s shape that reaches the Claude Code hook', async () => {
     await withSandbox(async (s) => {
       const r = await runHook({ sessionId: 'cp', toolName: 'bash', toolArgs: JSON.stringify({ command: 'cat ~/.npmrc' }), cwd: s.project }, s.env)

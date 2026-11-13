@@ -36,7 +36,7 @@ const fromGemini = (e: Record<string, any>): HookEvent | undefined => {
   if (!base.tool_name) return { ...base, ...extra }
   const t = geminiTool(base.tool_name, base.tool_input)
   if (!t) return { ...base, tool_response: response }
-  return { ...base, tool_name: t.tool_name, tool_input: t.tool_input, tool_response: response, cwd: t.cwd ?? base.cwd }
+  return { ...base, tool_name: t.tool_name, tool_input: t.tool_input, tool_response: response, ...(t.cwd ? { tool_cwd: t.cwd } : {}) }
 }
 
 export const parsePayload = (raw: string, declared?: string): HookEvent | undefined => {

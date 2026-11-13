@@ -74,7 +74,7 @@ const cursorSession = (id: string, rows: readonly Record<string, unknown>[], hom
       const t = cursorTool(name, r['params'])
       if (t === undefined) unknown[name] = (unknown[name] ?? 0) + 1
       if (!t) continue
-      const event = { ...base, cwd: t.cwd ?? cwd, tool_name: t.tool_name, tool_input: t.tool_input, tool_use_id: String(r['call'] ?? '') }
+      const event = { ...base, ...(t.cwd ? { tool_cwd: t.cwd } : {}), tool_name: t.tool_name, tool_input: t.tool_input, tool_use_id: String(r['call'] ?? '') }
       events.push({ at, event: { ...event, hook_event_name: 'PreToolUse' } })
       if (typeof r['result'] === 'string') events.push({ at, event: { ...event, hook_event_name: 'PostToolUse', tool_response: r['result'] } })
     } else if (text && r['type'] === 1) {

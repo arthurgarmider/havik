@@ -17,7 +17,7 @@ describe('parsePayload', () => {
 
   it('reads Gemini CLI\'s events and tools in havik\'s vocabulary', () => {
     expect(parsePayload(json({ ...base, hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input: { command: 'cat ~/.npmrc', directory: '/w/sub' } }), 'gemini-cli'))
-      .toMatchObject({ agent: 'gemini-cli', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat ~/.npmrc' }, cwd: '/w/sub' })
+      .toMatchObject({ agent: 'gemini-cli', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat ~/.npmrc' }, cwd: '/w', tool_cwd: '/w/sub' })
     expect(parsePayload(json({ ...base, hook_event_name: 'AfterTool', tool_name: 'read_file', tool_input: { file_path: '/w/a' }, tool_response: { llmContent: 'text', returnDisplay: 'x' } }), 'gemini-cli'))
       .toMatchObject({ hook_event_name: 'PostToolUse', tool_name: 'Read', tool_response: 'text' })
     expect(parsePayload(json({ ...base, hook_event_name: 'BeforeAgent', prompt: 'hi' }), 'gemini-cli')).toMatchObject({ hook_event_name: 'UserPromptSubmit', prompt: 'hi' })

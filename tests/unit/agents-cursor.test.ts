@@ -79,6 +79,20 @@ describe('Cursor history from its database', () => {
     })
   })
 
+  it('keeps the workspace as the working folder when a command names a folder of its own', async () => {
+    await withTree({}, async (home) => {
+      const dir = join(home, 'Library/Application Support/Cursor/User/globalStorage')
+      await mkdir(dir, { recursive: true })
+      makeDb(join(dir, 'state.vscdb'), [
+        'create table cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);',
+        row(`composerData:${A}`, { composerId: A, createdAt: NOW - 2 * DAY, lastUpdatedAt: NOW - DAY }),
+        bubble(A, 'b1', '2026-10-15T10:00:05.000Z', { ...tool('run_terminal_command_v2', { command: 'cat ./credentials', cwd: join(home, '.aws') }), workspaceUris: [pathToFileURL(join(home, 'proj')).href] }),
+      ].join('\n'))
+      const [s] = await collect(agentById('cursor')!.history!({ home, since: 30 * DAY, now: NOW })) as AgentSession[]
+      expect(s.events[0].event).toMatchObject({ cwd: join(home, 'proj'), tool_cwd: join(home, '.aws') })
+    })
+  })
+
   it('says it could not read the database when sqlite3 is missing, never an empty history', async () => {
     await withTree({}, async (home) => {
       await build(home)

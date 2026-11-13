@@ -52,8 +52,9 @@ describe('codexEvents', () => {
     const { id, events, unknown } = codexEvents(text)
     expect(id).toBe('s-1')
     expect(events.map((e) => `${e.event.hook_event_name}:${e.event.tool_name ?? ''}:${e.event.cwd}`)).toEqual([
-      'UserPromptSubmit::/home/u/proj', 'PreToolUse:Bash:/home/u/proj/sub', 'PostToolUse:Bash:/home/u/proj/sub', 'PreToolUse:Patch:/home/u/proj', 'Stop::/home/u/proj',
+      'UserPromptSubmit::/home/u/proj', 'PreToolUse:Bash:/home/u/proj', 'PostToolUse:Bash:/home/u/proj', 'PreToolUse:Patch:/home/u/proj', 'Stop::/home/u/proj',
     ])
+    expect(events.map((e) => e.event.tool_cwd)).toEqual([undefined, '/home/u/proj/sub', '/home/u/proj/sub', undefined, undefined])
     expect(events[0].event.prompt).toBe('check the registry config')
     expect(events[2].event.tool_response).toBe('registry=https://registry.npmjs.org/')
     expect(unknown).toEqual({ mystery_tool: 1 })
@@ -64,6 +65,18 @@ describe('accesses: Patch', () => {
   it('writes every file a patch adds, updates or deletes', () => {
     const patch = '*** Begin Patch\n*** Add File: docs/new.md\n+x\n*** Update File: src/a.ts\n@@\n*** Delete File: /home/u/.zshrc\n*** End Patch'
     expect(accesses('Patch', { patch }, '/home/u/proj', '/home/u').map((a) => `${a.kind} ${a.path}`)).toEqual(['write /home/u/proj/docs/new.md', 'write /home/u/proj/src/a.ts', 'write /home/u/.zshrc'])
+  })
+})
+
+describe('Codex history: a command that names its own folder', () => {
+  it('still reports a key file read there', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const text = rollout(join(home, 'proj'), home, [call(2, 'shell_command', { command: 'cat ~/.aws/credentials', workdir: join(home, '.aws') }, 'c1')])
+      await Bun.write(join(home, '.codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-s-1.jsonl'), text)
+      const r = await replayAgents({ home, config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG), now: Date.parse(T(30)), agents: [agentById('codex')!] })
+      expect(r.findings.map((f) => `${f.detector} ${f.path}`)).toEqual([`sensitive-access ${join(home, '.aws/credentials')}`])
+    })
   })
 })
 

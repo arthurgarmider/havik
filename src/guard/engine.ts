@@ -109,7 +109,7 @@ const pre = async (event: HookEvent, o: EngineOptions): Promise<string> => {
   }
   const ctx = contextFor(event, memory, o)
   const tool = event.tool_name ?? ''
-  const list = [...accesses(tool, event.tool_input, event.cwd, o.home), ...mcpServerSends(tool, memory.remoteMcp)]
+  const list = [...accesses(tool, event.tool_input, event.tool_cwd ?? event.cwd, o.home), ...mcpServerSends(tool, memory.remoteMcp)]
   const found = sensitiveAccesses(list, ctx)
   const scripts: GuardFinding[] = []
   const toScan = o.scanScripts ? list.filter(a => a.kind === 'script' && a.path) : []
@@ -137,7 +137,7 @@ const post = async (event: HookEvent, o: EngineOptions): Promise<string> => {
   if (event.tool_response === undefined || !(CONTENT_TOOLS.has(tool) || tool.startsWith('mcp__'))) return ''
   const memory = await o.store.readMemory(event.session_id)
   const ctx = contextFor(event, memory, o)
-  const list = accesses(tool, event.tool_input, event.cwd, o.home)
+  const list = accesses(tool, event.tool_input, event.tool_cwd ?? event.cwd, o.home)
   const critical = list.some(a => a.kind === 'read' && a.path && judgePath(a.path, ctx).level === 'critical')
   const command = tool === 'Bash' ? String(asRecord(event.tool_input)['command'] ?? '') : ''
   const pastedEarlier = (value: string) => memory.pasted.has(fingerprint(value, o.salt))

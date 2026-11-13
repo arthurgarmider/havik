@@ -27,7 +27,7 @@ export const codexTool = (name: string, raw: unknown): Translation => {
 export const codexEvents = (text: string): { id?: string; events: Replayed[]; unknown: Record<string, number> } => {
   const events: Replayed[] = []
   const unknown: Record<string, number> = {}
-  const calls = new Map<string, { name: string; input: unknown; cwd: string }>()
+  const calls = new Map<string, { name: string; input: unknown; tool_cwd?: string }>()
   let id: string | undefined
   let cwd = ''
   for (const raw of text.split('\n')) {
@@ -55,13 +55,13 @@ export const codexEvents = (text: string): { id?: string; events: Replayed[]; un
       const t = codexTool(name, p['type'] === 'custom_tool_call' ? p['input'] : p['arguments'])
       if (t === undefined) unknown[name] = (unknown[name] ?? 0) + 1
       if (!t) continue
-      const where = t.cwd ?? cwd
+      const where = t.cwd ? { tool_cwd: t.cwd } : {}
       const callId = String(p['call_id'] ?? '')
-      calls.set(callId, { name: t.tool_name, input: t.tool_input, cwd: where })
-      events.push({ at: atMs, event: { ...base, cwd: where, hook_event_name: 'PreToolUse', tool_name: t.tool_name, tool_input: t.tool_input, tool_use_id: callId } })
+      calls.set(callId, { name: t.tool_name, input: t.tool_input, ...where })
+      events.push({ at: atMs, event: { ...base, ...where, hook_event_name: 'PreToolUse', tool_name: t.tool_name, tool_input: t.tool_input, tool_use_id: callId } })
     } else if (line['type'] === 'response_item' && (p['type'] === 'function_call_output' || p['type'] === 'custom_tool_call_output')) {
       const c = calls.get(String(p['call_id'] ?? ''))
-      if (c) events.push({ at: atMs, event: { ...base, cwd: c.cwd, hook_event_name: 'PostToolUse', tool_name: c.name, tool_input: c.input, tool_use_id: String(p['call_id']), tool_response: p['output'] } })
+      if (c) events.push({ at: atMs, event: { ...base, tool_cwd: c.tool_cwd, hook_event_name: 'PostToolUse', tool_name: c.name, tool_input: c.input, tool_use_id: String(p['call_id']), tool_response: p['output'] } })
     }
   }
   return { id, events, unknown }
