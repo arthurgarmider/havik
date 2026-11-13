@@ -69,7 +69,7 @@ export interface FileEvidence {
   readonly sources: Source[]
   readonly sinks: Sink[]
   readonly obfuscated: readonly Obfuscation[]
-  readonly skipped?: 'syntax' | 'size'
+  readonly skipped?: 'syntax' | 'size' | 'unreadable'
 }
 
 // JS/TS is read by the AST analyzer; shell, Python and any file it cannot parse fall back to line patterns.
@@ -101,7 +101,10 @@ const shebangScripts = async (dir: string, known: readonly string[]): Promise<st
   const have = new Set(known)
   const found: string[] = []
   for (const file of await findFiles('{*,scripts/**,bin/**}', dir, { absolute: true, ignore: VENDORED })) {
-    if (!have.has(file) && (await readTextHead(file, 2)).text === '#!') found.push(file)
+    if (have.has(file)) continue
+    // A file that cannot be opened may be a script: it is kept, so that reading it reports it.
+    const head = await readTextHead(file, 2).catch(() => null)
+    if (!head || head.text === '#!') found.push(file)
   }
   return found
 }
@@ -156,7 +159,9 @@ const analysisFindings = (skill: SkillTarget, scanned: readonly FileEvidence[], 
       owasp: 'ASI04',
       description: f.skipped === 'size'
         ? `${relative(skill.dir, f.file)} is too large to read in full; only the first ${MAX_TEXT_BYTES / 1_000_000} MB was checked, with line patterns`
-        : `Could not parse ${relative(skill.dir, f.file)}; it was checked with line patterns only`,
+        : f.skipped === 'unreadable'
+          ? `Could not open ${relative(skill.dir, f.file)}; it was not checked`
+          : `Could not parse ${relative(skill.dir, f.file)}; it was checked with line patterns only`,
       proof: { file: f.file, line: 1, snippet: (texts.get(f.file)?.[0] ?? '').trim().slice(0, 200), safeToDisplay: true },
     }] : []),
   ])
@@ -182,15 +187,19 @@ export const inspectSkill = async (skill: SkillTarget): Promise<Inspected> => {
 
   const texts = new Map<string, string[]>()
   const truncated = new Set<string>()
+  // One file that cannot be opened is reported by itself: the rest of the folder is still analysed.
+  const unreadable = new Set<string>()
   for (const file of files) {
-    const head = await readTextHead(file, MAX_TEXT_BYTES)
-    texts.set(file, head.text.split('\n'))
-    if (head.truncated) truncated.add(file)
+    const head = await readTextHead(file, MAX_TEXT_BYTES).catch(() => null)
+    texts.set(file, (head?.text ?? '').split('\n'))
+    if (!head) unreadable.add(file)
+    else if (head.truncated) truncated.add(file)
   }
+  const unread = (file: string): FileEvidence => ({ file, sources: [], sinks: [], obfuscated: [], skipped: 'unreadable' })
 
   const map = await loadSensitivityMap()
-  const scanned = sourceFiles.map(f => evidenceFor(f, (texts.get(f) ?? []).join('\n'), truncated.has(f), map))
-  if (hasSkillMd) scanned.unshift({ file: skillMd, ...scanLines(markdownCode(texts.get(skillMd) ?? []), map), obfuscated: [] })
+  const scanned = sourceFiles.map(f => (unreadable.has(f) ? unread(f) : evidenceFor(f, (texts.get(f) ?? []).join('\n'), truncated.has(f), map)))
+  if (hasSkillMd) scanned.unshift(unreadable.has(skillMd) ? unread(skillMd) : { file: skillMd, ...scanLines(markdownCode(texts.get(skillMd) ?? []), map), obfuscated: [] })
   const observed = new Set<Capability>(sourceFiles.flatMap(f => [...capabilitiesOf(f, (texts.get(f) ?? []).join('\n'), map)]))
   const declared: ReadonlySet<Capability> = skill.declared ?? new Set()
   const caps: CapabilityResult = { observed, declared, undeclared: new Set([...observed].filter(c => !declared.has(c))) }
