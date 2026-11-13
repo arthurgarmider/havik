@@ -119,6 +119,7 @@ guardCommand.command('replay')
     const config = await loadGuardConfig()
     const result = await replaySessions({ projectsDir: opts.dir, home: homedir(), config, map: guardMap(await loadSensitivityMap(), config), since })
     process.stdout.write(`${opts.json ? JSON.stringify(result, null, 2) : formatReplay(result, opts.dir, opts.since, homedir(), opts.all)}\n`)
-    process.exitCode = auditExitCode(result.summaries)
+    // Records that were not read must not exit as clean: 3, as a scan does, unless a finding already decides the code.
+    process.exitCode = auditExitCode(result.summaries) || (result.warnings.length > 0 ? 3 : 0)
   })
 

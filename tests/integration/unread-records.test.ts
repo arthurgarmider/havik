@@ -23,4 +23,19 @@ describe('a record file that cannot be read', () => {
       expect(r.stdout).toContain('Could not read: Claude Code: could not read ~/.claude/projects/p/locked.jsonl')
     })
   })
+
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('makes guard replay exit 3 when nothing worse was found, instead of 0', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const file = join(home, '.claude/projects/p/locked.jsonl')
+      await mkdir(join(home, '.claude/projects/p'), { recursive: true })
+      await mkdir(join(dir, 'tmp'), { recursive: true })
+      await writeFile(file, '{}')
+      await chmod(file, 0o000)
+      const r = await runCli(['guard', 'replay'], { HOME: home, HAVIK_HOME: join(dir, 'havik'), TMPDIR: join(dir, 'tmp') }, dir)
+      await chmod(file, 0o600)
+      expect(r.stdout).toContain('Could not read: Claude Code: could not read ~/.claude/projects/p/locked.jsonl')
+      expect(r.code).toBe(3)
+    })
+  })
 })
