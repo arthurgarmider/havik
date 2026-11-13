@@ -1,7 +1,7 @@
 import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { readTextOrNull } from '../core/fs'
+import { readText } from '../core/fs'
 import { asArray, asRecord } from '../core/json'
 import { packageRoot } from '../core/paths'
 import type { Result } from '../core/types'
@@ -12,7 +12,8 @@ export const TOOL_MATCHER = 'Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep|Ba
 export const MIN_CLAUDE_VERSION = '2.1.251'
 // havik/guard.js is what 0.4.0 installed; it must still be recognised so a re-install replaces it.
 // Forward or backward slashes: the same hooks on Windows.
-const GUARD_COMMAND = /dist[\\/]guard\.js|havik[\\/]guard\.m?js|src[\\/]guard[\\/]hook\.ts|\.havik[\\/]bin[\\/]havik(?:\.exe)?"? hook/
+// Only a script in a folder named havik: another tool's dist/guard.js is not havik's to replace.
+const GUARD_COMMAND = /havik[\\/](?:dist[\\/]guard\.js|guard\.m?js|src[\\/]guard[\\/]hook\.ts)|\.havik[\\/]bin[\\/]havik(?:\.exe)?"? hook/
 
 export const guardScript = (): string => join(packageRoot(), 'dist', 'guard.js')
 export const hookCommand = (node: string, script: string, agent?: string): string => `"${node}" "${script}"${agent ? ` --agent ${agent}` : ''}`
@@ -111,8 +112,14 @@ export const withGuardFor = (target: HookTarget, settings: Settings, command: st
 export const withGuard = (settings: Settings, command: string): Settings => withGuardFor(TARGETS['claude-code'], settings, command)
 
 const readSettings = async (file: string): Promise<Result<{ settings: Settings; existed: boolean }>> => {
-  const text = await readTextOrNull(file)
-  if (text === null) return { ok: true, value: { settings: {}, existed: false } }
+  let text: string
+  try {
+    text = await readText(file)
+  } catch (error) {
+    // Only a missing file means there are no settings yet: one that cannot be read must not be replaced.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, value: { settings: {}, existed: false } }
+    return { ok: false, error: `${file} could not be read; it was left alone` }
+  }
   let data: unknown
   try {
     data = JSON.parse(text)

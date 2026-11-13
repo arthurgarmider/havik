@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TARGETS, TOOL_MATCHER, binaryHookCommand, compareVersions, guardStatus, hasGuard, hookCommand, installGuard, uninstallGuard, withGuard, withGuardFor, withoutGuard } from '../../src/guard/install'
 import { withTree } from '../helpers/tmp-tree'
@@ -74,7 +74,18 @@ describe('installGuard / uninstallGuard', () => {
 })
 
 describe('guardStatus', () => {
-  it('reports where the guard is installed, stale scripts, the sandbox and disableAllHooks above the working directory', async () => {
+  it('reports where the guard is installed and a script that is gone', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      await mkdir(join(home, '.claude'), { recursive: true })
+      await writeFile(join(home, '.claude/settings.json'), JSON.stringify(withGuard({}, hookCommand('/n', join(dir, 'havik/dist/guard.js')))))
+      const s = await guardStatus(dir, home, '2.1.251')
+      expect(s.installedIn).toEqual([join(home, '.claude/settings.json')])
+      expect(s.missingScripts).toEqual([join(dir, 'havik/dist/guard.js')])
+    })
+  })
+
+  it('reports the sandbox and disableAllHooks above the working directory, and does not take a dist/guard.js outside a havik folder for its own', async () => {
     await withTree({}, async (dir) => {
       const home = join(dir, 'home')
       const repo = join(dir, 'repo', 'sub')
@@ -84,8 +95,8 @@ describe('guardStatus', () => {
       await writeFile(join(home, '.claude/settings.json'), JSON.stringify({ ...withGuard({}, hookCommand('/n', join(dir, 'gone/dist/guard.js'))), sandbox: { enabled: true } }))
       await writeFile(join(dir, 'repo/.claude/settings.json'), JSON.stringify({ disableAllHooks: true }))
       const s = await guardStatus(repo, home, '2.1.250')
-      expect(s.installedIn).toEqual([join(home, '.claude/settings.json')])
-      expect(s.missingScripts).toEqual([join(dir, 'gone/dist/guard.js')])
+      expect(s.installedIn).toEqual([])
+      expect(s.missingScripts).toEqual([])
       expect(s.disabledBy).toEqual([join(dir, 'repo/.claude/settings.json')])
       expect([s.sandbox, s.claudeVersion, s.versionOk]).toEqual([true, '2.1.250', false])
     })
@@ -178,5 +189,29 @@ describe('install: Cursor status and Windows paths', () => {
     for (const cmd of ['"C:\\Users\\u\\.havik\\bin\\havik.exe" hook --agent codex', '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\u\\.havik\\guard.mjs"']) {
       expect(withoutGuard(withGuard({}, cmd))).toEqual({})
     }
+  })
+})
+
+describe('another tool\'s hook whose script is also called dist/guard.js', () => {
+  const THEIRS = { matcher: 'Bash', hooks: [{ type: 'command', command: 'node /opt/acme-policy/dist/guard.js' }] }
+  it('survives an install and an uninstall', () => {
+    const next = withGuard({ hooks: { PreToolUse: [THEIRS] } }, CMD)
+    expect(next.hooks.PreToolUse[0]).toEqual(THEIRS)
+    expect(withoutGuard(next)).toEqual({ hooks: { PreToolUse: [THEIRS] } })
+  })
+})
+
+describe('a settings file that exists but cannot be read', () => {
+  // Root reads any file, and Windows has no such permission.
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('is left alone by install and uninstall', async () => {
+    await withTree({ 'settings.json': '{"theme":"dark"}' }, async (dir) => {
+      const file = join(dir, 'settings.json')
+      await chmod(file, 0o200)
+      const results = [await installGuard(file, CMD), await uninstallGuard(file)]
+      await chmod(file, 0o600)
+      expect(results.map((r) => r.ok)).toEqual([false, false])
+      expect(await readFile(file, 'utf8')).toBe('{"theme":"dark"}')
+      expect(await readdir(dir)).toEqual(['settings.json'])
+    })
   })
 })
