@@ -1,6 +1,6 @@
 {
   "name": "agent-havik",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Which AI agents are on your computer, and what did they touch? Finds Claude Code, Cursor, Codex, Hermes and more, reads their own records locally, and shows the password and key files, secrets and risky scripts; plus a scanner for agent skills, plugins and tool servers",
   "type": "module",
   "bin": {
