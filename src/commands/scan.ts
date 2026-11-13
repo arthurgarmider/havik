@@ -175,6 +175,8 @@ async function runScan(scanPath: string, opts: {
 
   // Score and exit code use every finding; --severity only narrows what is shown.
   const unique = dedupeAndRenumber([...allFindings, ...ai.findings])
+  // A file checked only in part must not read as clean: it is also a warning, and so exit code 3.
+  warnings.push(...unique.filter(f => f.ruleId === 'parse-failed').map(f => `not read in full, line patterns only: ${f.proof?.file ?? f.description}`))
   const filtered: Finding[] = opts.severity
     ? unique.filter(f => f.severity === (opts.severity as Severity))
     : unique

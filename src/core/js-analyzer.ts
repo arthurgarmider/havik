@@ -88,7 +88,7 @@ const moduleOf = (name: string): string | undefined =>
   name.startsWith('mod:') ? [...MODULE_CAP.keys()].find(m => name === `mod:${m}` || name.startsWith(`mod:${m}.`)) : undefined
 const display = (name: string): string => moduleOf(name) ?? name.replace(/^(?:mod|g):/, '')
 const pluginsFor = (file: string): ParserPlugin[] =>
-  [...(/\.tsx$/.test(file) ? ['typescript', 'jsx'] : /\.[cm]?ts$/.test(file) ? ['typescript'] : ['jsx']), 'decorators-legacy', 'explicitResourceManagement'] as ParserPlugin[]
+  [...(/\.tsx$/.test(file) ? ['typescript', 'jsx'] : /\.[cm]?ts$/.test(file) ? ['typescript'] : ['jsx']), 'decorators-legacy', 'decoratorAutoAccessors', 'explicitResourceManagement'] as ParserPlugin[]
 
 // Flow-insensitive alias table: identifier -> every expression it was bound to, in source order.
 const collectAliases = (nodes: N[], onModule: (m: string) => void): Map<string, N[]> => {
