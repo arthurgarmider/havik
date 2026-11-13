@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { findFiles, readTextOrNull } from '../core/fs'
 import { asRecord } from '../core/json'
+import { tildify } from '../guard/accesses'
 import type { Replayed } from '../guard/types'
 import { parseArgs, pick, shellText, type Translation } from './normalize'
 import { at, readConfig, serversIn, setupOf } from './setup'
@@ -72,7 +73,13 @@ async function* history(o: HistoryOptions): AsyncIterable<HistoryItem> {
   for (const file of await findFiles('**/rollout-*.jsonl', dir, { absolute: true, deep: 6 })) {
     const info = await stat(file).catch(() => null)
     if (!info || (o.since !== undefined && o.now - info.mtimeMs > o.since)) continue
-    const { id, events, unknown } = codexEvents((await readTextOrNull(file)) ?? '')
+    const text = await readTextOrNull(file)
+    // A file with no read permission, or too large for one string, is named: its conversation must not read as empty.
+    if (text === null) {
+      yield { warning: `could not read ${tildify(file, o.home)}` }
+      continue
+    }
+    const { id, events, unknown } = codexEvents(text)
     yield { id: id ?? file, startedBy: 'you', events, unknown }
   }
 }

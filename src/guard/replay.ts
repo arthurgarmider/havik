@@ -41,6 +41,7 @@ export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
   let toolCalls = 0
   for (const def of o.agents ?? [claudeCode]) {
     if (!def.history) continue
+    let undated = 0
     for await (const item of def.history({ home: o.home, since: o.since, now, dir: def.id === claudeCode.id ? o.projectsDir : undefined })) {
       if ('warning' in item) {
         warnings.push(`${def.name}: ${item.warning}`)
@@ -50,6 +51,11 @@ export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
       counts.unknownActions += Object.values(item.unknown ?? {}).reduce((n, k) => n + k, 0)
       let seen = false
       for (const { event, at } of item.events) {
+        // An entry with no time cannot be placed in the window: it is counted and said, not dropped in silence.
+        if (o.since !== undefined && at === 0) {
+          undated++
+          continue
+        }
         if (o.since !== undefined && now - at > o.since) continue
         seen = true
         if (event.hook_event_name === 'PreToolUse') {
@@ -64,6 +70,7 @@ export const replayAgents = async (o: ReplayOptions): Promise<ReplayResult> => {
       }
       if (seen) counts.sessions++
     }
+    if (undated > 0) warnings.push(`${def.name}: ${undated.toLocaleString('en-US')} ${undated === 1 ? 'entry with no time was' : 'entries with no time were'} not checked`)
   }
   const bySession = new Map<string, AuditLine[]>()
   for (const line of store.lines) {
@@ -92,6 +99,7 @@ export const formatReplay = (r: ReplayResult, dir: string, span: string, home: s
   return [
     `havik guard replay: ${r.sessions} sessions, ${r.toolCalls} tool calls on ${r.days} days in the last ${span} (${tildify(dir, home)})`,
     'Best-effort: built from the transcripts Claude Code keeps, whose format can change; scripts were scanned as they are now.',
+    ...[...new Set(r.warnings)].map(w => `Could not read: ${w}`),
     '',
     `It would have warned ${alerts} times in ${warned.length} sessions (${total('critical')} critical, ${total('high')} high): ${perDay} a day. ${total('medium')} medium findings would have been recorded without a warning.`,
     ...(detectors.size > 0 ? [`by detector: ${[...detectors].map(([d, n]) => `${d} ${n}`).join(' · ')}`] : []),

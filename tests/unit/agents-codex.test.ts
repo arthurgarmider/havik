@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test'
+import { chmod } from 'node:fs/promises'
 import { join } from 'node:path'
 import { codexEvents, codexTool } from '../../src/agents/codex'
 import { agentById } from '../../src/agents/registry'
@@ -99,6 +100,21 @@ describe('Codex history through the detectors', () => {
         if (saved === undefined) delete process.env.TMPDIR
         else process.env.TMPDIR = saved
       }
+    })
+  })
+})
+
+describe('Codex history: a rollout that cannot be read', () => {
+  // Root reads any file, and Windows has no such permission.
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('is named, never an empty conversation', async () => {
+    await withTree({}, async (home) => {
+      const file = join(home, '.codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-s-1.jsonl')
+      await Bun.write(file, rollout(join(home, 'proj'), home, []))
+      await chmod(file, 0o000)
+      const items = []
+      for await (const item of agentById('codex')!.history!({ home, now: Date.parse(T(30)) })) items.push(item)
+      await chmod(file, 0o600)
+      expect(items).toEqual([{ warning: 'could not read ~/.codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-s-1.jsonl' }])
     })
   })
 })

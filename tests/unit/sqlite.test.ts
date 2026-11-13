@@ -16,6 +16,16 @@ describe('sqliteQuery', () => {
     })
   })
 
+  it('reads rows still in the write-ahead log, as when the app that owns the database is running', async () => {
+    await withTree({}, async (dir) => {
+      const [live, db] = [join(dir, 'live.db'), join(dir, 'state.db')]
+      // A copy taken while the writer is still connected: the table and its row are in state.db-wal only.
+      const made = Bun.spawnSync(['sqlite3', live, 'PRAGMA journal_mode=WAL;', "create table s(source text); insert into s values ('cron');", `.shell cp '${live}' '${db}'`, `.shell cp '${live}-wal' '${db}-wal'`])
+      expect(made.exitCode).toBe(0)
+      expect(await sqliteQuery(db, 'select source from s')).toEqual({ ok: true, value: [{ source: 'cron' }] })
+    })
+  })
+
   it('says what went wrong instead of returning no rows', async () => {
     await withTree({}, async (dir) => {
       const missing = await sqliteQuery(join(dir, 'none.db'), 'select 1')

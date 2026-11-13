@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test'
-import { mkdir, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DEFAULTS } from '../../src/core/sensitivity'
 import { DEFAULT_CONFIG, guardMap } from '../../src/guard/policy'
-import { eventsOf, replayAgents, replaySessions } from '../../src/guard/replay'
+import { eventsOf, formatReplay, replayAgents, replaySessions } from '../../src/guard/replay'
 import { agentById } from '../../src/agents/registry'
 import type { AgentDef } from '../../src/agents/types'
 import type { Replayed } from '../../src/guard/types'
@@ -166,6 +166,40 @@ describe('Claude Code history: tools havik does not understand', () => {
       expect((items[0] as { unknown: Record<string, number> }).unknown).toEqual({ Artifact: 1, Fancy: 2 })
       // As for every other agent, an action havik does not understand is counted, not passed on as an event.
       expect((items[0] as { events: { event: { tool_name?: string } }[] }).events.map((e) => e.event.tool_name)).toEqual(['Read', 'TodoWrite', 'mcp__x__y'])
+    })
+  })
+})
+
+describe('replay: records that were not read are said', () => {
+  const replay = (home: string, since?: number) => replaySessions({ projectsDir: join(home, '.claude/projects'), home, config: DEFAULT_CONFIG, map: guardMap(DEFAULTS, DEFAULT_CONFIG), since, now: Date.parse(T(30)) })
+
+  // Root reads any file, and Windows has no such permission.
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('names a transcript it could not open, in the result and in the printed replay', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const projects = join(home, '.claude/projects/-home-u-proj')
+      await mkdir(projects, { recursive: true })
+      await writeFile(join(projects, 's1.jsonl'), benign('s1', join(home, 'proj')))
+      await writeFile(join(projects, 's2.jsonl'), benign('s2', join(home, 'proj')))
+      await chmod(join(projects, 's2.jsonl'), 0o000)
+      const r = await ownTmp(dir, () => replay(home))
+      await chmod(join(projects, 's2.jsonl'), 0o600)
+      expect(r.warnings).toEqual(['Claude Code: could not read ~/.claude/projects/-home-u-proj/s2.jsonl'])
+      expect(r.agents['claude-code'].sessions).toBe(1)
+      expect(formatReplay(r, join(home, '.claude/projects'), '30d', home)).toContain('Could not read: Claude Code: could not read ~/.claude/projects/-home-u-proj/s2.jsonl')
+    })
+  })
+
+  it('counts the entries that carry no time instead of dropping them in silence', async () => {
+    await withTree({}, async (dir) => {
+      const home = join(dir, 'home')
+      const projects = join(home, '.claude/projects/-home-u-proj')
+      await mkdir(projects, { recursive: true })
+      const undated = { type: 'assistant', sessionId: 's1', cwd: join(home, 'proj'), message: { content: [{ type: 'tool_use', id: 'u1', name: 'Bash', input: { command: 'ls' } }] } }
+      await writeFile(join(projects, 's1.jsonl'), `${benign('s1', join(home, 'proj'))}\n${JSON.stringify(undated)}`)
+      const r = await ownTmp(dir, () => replay(home, 30 * 86_400_000))
+      expect(r.warnings).toEqual(['Claude Code: 1 entry with no time was not checked'])
+      expect(r.toolCalls).toBe(1)
     })
   })
 })

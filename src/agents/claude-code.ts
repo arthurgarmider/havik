@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { findFiles, readTextOrNull } from '../core/fs'
 import { asArray, asRecord } from '../core/json'
+import { tildify } from '../guard/accesses'
 import type { Replayed } from '../guard/types'
 import { at, readConfig, serversIn, setupOf } from './setup'
 import type { AgentDef, HistoryItem, HistoryOptions } from './types'
@@ -92,8 +93,13 @@ async function* history(o: HistoryOptions): AsyncIterable<HistoryItem> {
   }
   for (const [id, files] of groups) {
     const events: Replayed[] = []
-    // One push per event: Node caps the arguments of a single call, and a long transcript has more events than that.
-    for (const file of files) for (const event of eventsOf((await readTextOrNull(file)) ?? '')) events.push(event)
+    for (const file of files) {
+      const text = await readTextOrNull(file)
+      // A file with no read permission, or too large for one string, is named: its conversation must not read as empty.
+      if (text === null) yield { warning: `could not read ${tildify(file, o.home)}` }
+      // One push per event: Node caps the arguments of a single call, and a long transcript has more events than that.
+      else for (const event of eventsOf(text)) events.push(event)
+    }
     yield { id, startedBy: 'you', events: events.filter(isUnderstood).sort((a, b) => a.at - b.at), unknown: unknownOf(events) }
   }
 }
