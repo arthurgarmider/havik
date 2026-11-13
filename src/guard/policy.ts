@@ -108,7 +108,7 @@ const isClaudeCode = (agent: string | undefined): boolean => agent === undefined
 // A root that holds the home directory (a session started in ~ or /) would authorize every credential; it is dropped.
 // The Claude Code files read all day are authorized for Claude Code only.
 export const authorizedRoots = (cwd: string, memoryRoots: readonly string[], config: GuardConfig, home: string, agent?: string): string[] => [
-  cwd, ...memoryRoots, ...config.roots, tmpdir(), join(havikHome(), 'cache'),
+  cwd, ...memoryRoots, ...config.roots, tmpdir(),
   ...(isClaudeCode(agent) ? CLAUDE_ALLOWED.map(p => join(home, '.claude', p)) : []),
 ].filter(root => !isInside(root, home))
 
@@ -169,6 +169,8 @@ export const judgePath = (path: string, ctx: PolicyContext): PathVerdict => {
   // An agent's password or key file is never "inside the project", even for a session started in that agent's folder.
   const secret = ownerOf(tildify(path, ctx.home), 'secrets')
   if (secret) return { level: 'critical', reason: `${possessive(secret.name)} password or key file`, authorized: false }
+  // The guard's settings, records and script-check cache: a write there can switch it off, whatever folder the session runs in.
+  if (isInside(havikHome(), path)) return { level: 'high', reason: 'havik\'s own settings and records', authorized: false }
   const inside = ctx.roots.some(root => isInside(root, path))
   if (inside && SECRETS_FILE.test(path)) return { level: 'medium', reason: 'secrets file inside the project', authorized: false }
   if (inside) return { level: 'low', reason: 'inside the project', authorized: true }

@@ -169,6 +169,16 @@ describe('guard: secrets you paste', () => {
   })
 })
 
+describe('guard: its own files', () => {
+  it('warns when the agent writes the guard\'s settings or a script-check result', async () => {
+    await withSandbox(async (s) => {
+      const write = (file: string) => runHook(hookEvent(s, { tool_name: 'Write', tool_input: { file_path: join(s.havik, file), content: 'x' } }), s.env)
+      expect((await write('guard.yaml')).message).toContain('guard.yaml')
+      expect((await write('cache/jit/abc.json')).message).toContain('abc.json')
+    })
+  })
+})
+
 describe('guard: what the agent says', () => {
   it('warns once when the reply says you shared a secret, and never blocks the stop', async () => {
     await withSandbox(async (s) => {

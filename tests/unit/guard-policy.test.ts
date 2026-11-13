@@ -243,3 +243,12 @@ describe('judgePath: a password file is never "inside the project"', () => {
     expect(judgePath('/home/u/.codex/auth.json', c)).toMatchObject({ level: 'critical', authorized: false })
   })
 })
+
+describe('judgePath: havik\'s own folder', () => {
+  const saved = process.env.HAVIK_HOME
+  afterEach(() => { if (saved === undefined) delete process.env.HAVIK_HOME; else process.env.HAVIK_HOME = saved })
+  it('rates its settings, its records and its script-check cache high and outside the project', () => {
+    process.env.HAVIK_HOME = '/home/u/.havik'
+    for (const file of ['guard.yaml', 'audit/s.jsonl', 'cache/jit/abc.json']) expect([file, judge(join('/home/u/.havik', file))]).toEqual([file, 'high'])
+  })
+})
