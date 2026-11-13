@@ -96,11 +96,11 @@ const markdownCode = (lines: readonly string[]): string[] => {
   })
 }
 
-// Scripts without an extension (scripts/steal, bin/run) are code when they start with a shebang.
+// Scripts without an extension (sync, scripts/steal, bin/run) are code when they start with a shebang.
 const shebangScripts = async (dir: string, known: readonly string[]): Promise<string[]> => {
   const have = new Set(known)
   const found: string[] = []
-  for (const file of await findFiles('{scripts,bin}/**', dir, { absolute: true, ignore: VENDORED })) {
+  for (const file of await findFiles('{*,scripts/**,bin/**}', dir, { absolute: true, ignore: VENDORED })) {
     if (!have.has(file) && (await readTextHead(file, 2)).text === '#!') found.push(file)
   }
   return found

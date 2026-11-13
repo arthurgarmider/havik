@@ -7,7 +7,7 @@ import { calculateScore } from '../core/scoring'
 import { detectOpenClaw, discoverOpenClaw, analyzeOpenClaw } from '../adapters/openclaw'
 import { detectMcp, discoverMcp, analyzeMcp, mergeMcpServers } from '../adapters/mcp'
 import { detectGeneric, analyzeGeneric } from '../adapters/generic'
-import { claudeBasesOf, detectClaudeCode, discoverClaudeCode } from '../adapters/claude-code'
+import { claudeBasesOf, claudeDirOf, detectClaudeCode, discoverClaudeCode } from '../adapters/claude-code'
 import { analyzeClaudeCode } from '../adapters/claude-code-analyzer'
 import { formatTerminal } from '../output/terminal'
 import { formatJson } from '../output/json'
@@ -65,6 +65,9 @@ async function scanSinglePath(scanPath: string, rules: readonly import('../core/
       servers.push(...found.mcpServers)
       for (const s of found.skills) skills.set(resolve(dirname(s.path)), { name: s.name, dir: resolve(dirname(s.path)) })
       allFindings.push(...valueOrWarn(analyzeClaudeCode(found), 'Claude Code analysis', warnings) ?? [])
+      // The scripts hooks run are kept in .claude/hooks and in each plugin's hooks folder: their code is read as a skill's is.
+      const hookDirs = [{ name: '.claude/hooks', dir: join(claudeDirOf(base), 'hooks') }, ...found.plugins.map(p => ({ name: `${p.name}/hooks`, dir: join(p.installPath, 'hooks') }))]
+      for (const target of hookDirs) allFindings.push(...valueOrWarn(await analyzeSkill(target, rules), `Analysis of ${target.dir}`, warnings) ?? [])
     }
   }
 

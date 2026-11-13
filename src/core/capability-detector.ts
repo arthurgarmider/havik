@@ -11,7 +11,7 @@ type Signatures = Record<Capability, { python?: PythonSignatures }>
 
 const signatures = signaturesData as unknown as Signatures
 
-export const CODE_GLOB = '**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,py,sh,bash,zsh}'
+export const CODE_GLOB = '**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,py,rb,sh,bash,zsh,fish}'
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
